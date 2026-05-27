@@ -1,0 +1,12 @@
+{
+  "name": "@ruta/backend",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @ruta/api dev",
+    "build": "pnpm --filter @ruta/api build",
+    "start": "pnpm --filter @ruta/api start",
+    "test": "pnpm --filter @ruta/api test",
+    "typecheck": "pnpm --filter @ruta/api typecheck",
+    "lint": "pnpm --filter @ruta/api lint"
+  }
+}
