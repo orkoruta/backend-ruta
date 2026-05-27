@@ -29,6 +29,25 @@ Cada repo tiene su `package.json`, `tsconfig.json`, CI propio.
 
 ---
 
+## 0.1 Autorización operativa del usuario
+
+El usuario autoriza a los agentes a ejecutar los comandos, scripts,
+pruebas, builds, instalaciones y operaciones de sistema necesarias para
+cumplir las tareas del proyecto sin pedir confirmación manual previa.
+
+Si el runtime, sandbox o herramienta exige aprobación explícita, el
+agente debe solicitar escalación directamente usando una justificación
+concreta y, cuando sea razonable, pedir aprobación persistente por
+prefijos acotados (`pnpm test`, `pnpm build`, `npm run`, `git status`,
+scripts del repo, etc.). No intentar evadir el sandbox ni pedir reglas
+excesivamente amplias como "todo PowerShell" o "todo Python".
+
+Las acciones destructivas o irreversibles siguen requiriendo criterio:
+no borrar, resetear, purgar ni sobrescribir trabajo existente salvo que
+la tarea lo exija de forma clara y quede registrado en memoria.
+
+---
+
 ## 1. Qué es RUTA
 
 Plataforma SaaS multi-tenant para administrar operaciones comerciales
@@ -60,10 +79,10 @@ solo ve su propia información.
 | ORM | Prisma (con SQL crudo para particiones/RLS) | `ruta-shared/db/` |
 | Auth | `jose` (JWT) + `argon2` | `ruta-backend` |
 | Job manager | `pg-boss` | `ruta-backend` |
-| File storage | Supabase Storage | externo |
+| File storage | Por definir | — |
 | Pasarela de pagos | Wompi | externo |
 | Mapas | OpenStreetMap + Leaflet | en ambos frontends |
-| Hosting | Render + Supabase | externo |
+| Hosting | Render | externo |
 | Migraciones BD | `node-pg-migrate` + estado autoritativo SQL | `ruta-docs/bd/` |
 | Testing | Vitest + Supertest + Playwright + MSW | en cada repo |
 | Logger | `pino` | `ruta-backend` |
@@ -254,7 +273,7 @@ Si trabajas en un repo distinto a `ruta-docs`, abre el doc desde
 - **No hardcodear plazos.** Lee de `client_parameters` con
   `getParameter()`.
 - **No saltarte el state machine** de pedidos.
-- **No usar Supabase Auth.** Auth propia con `jose` + `argon2`.
+- **Auth propia con `jose` + `argon2`.** No delegar autenticación a servicios externos.
 - **No tokens en localStorage.** Cookies HttpOnly Secure SameSite=Strict.
 - **No usar opacidades Tailwind sin corchetes.** `bg-sky-500/[0.12]`
   ✅, `bg-sky-500/12` ❌.

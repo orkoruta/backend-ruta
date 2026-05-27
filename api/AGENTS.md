@@ -26,6 +26,25 @@ RUTA es un proyecto **multi-repo**. Identifica tu contexto:
 
 ---
 
+## 0.1 Autorización operativa del usuario
+
+El usuario autoriza a los agentes a ejecutar los comandos, scripts,
+pruebas, builds, instalaciones y operaciones de sistema necesarias para
+cumplir las tareas del proyecto sin pedir confirmación manual previa.
+
+Si el runtime, sandbox o herramienta exige aprobación explícita, el
+agente debe solicitar escalación directamente usando una justificación
+concreta y, cuando sea razonable, pedir aprobación persistente por
+prefijos acotados (`pnpm test`, `pnpm build`, `npm run`, `git status`,
+scripts del repo, etc.). No intentar evadir el sandbox ni pedir reglas
+excesivamente amplias como "todo PowerShell" o "todo Python".
+
+Las acciones destructivas o irreversibles siguen requiriendo criterio:
+no borrar, resetear, purgar ni sobrescribir trabajo existente salvo que
+la tarea lo exija de forma clara y quede registrado en memoria.
+
+---
+
 ## 1. Qué es RUTA
 
 Plataforma SaaS multi-tenant para administrar operaciones comerciales
@@ -52,10 +71,10 @@ entre Clientes (negocios) y Compradores.
 | ORM | Prisma | `ruta-shared/db/` |
 | Auth | `jose` + `argon2` | `ruta-backend` |
 | Jobs | `pg-boss` | `ruta-backend` |
-| File storage | Supabase Storage | externo |
+| File storage | Por definir | — |
 | Pasarela | Wompi | externo |
 | Mapas | OSM + Leaflet | frontends |
-| Hosting | Render + Supabase | externo |
+| Hosting | Render | externo |
 | Migraciones | `node-pg-migrate` + SQL | `ruta-docs/bd/` |
 | Tests | Vitest + Supertest + Playwright + MSW | en cada repo |
 | Logger | `pino` | `ruta-backend` |
@@ -195,7 +214,7 @@ Todos viven en `ruta-docs/`:
 - No UPDATE/DELETE en append-only.
 - No hardcodear plazos (usar `client_parameters` + `getParameter()`).
 - No saltarse el state machine.
-- No usar Supabase Auth.
+- Auth propia con `jose` + `argon2`. No delegar autenticación a servicios externos.
 - No tokens en localStorage.
 - No opacidades Tailwind sin corchetes.
 - No importar `@ruta/ui` desde una landing custom.

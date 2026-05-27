@@ -1,0 +1,19 @@
+packages:
+  - 'api'
+allowBuilds:
+  '@phc/format': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  argon2: true
+  esbuild: true
+  prisma: true
+minimumReleaseAgeExclude:
+  - '@orkoruta/db@1.0.0'
+  - '@orkoruta/shared@1.0.0'
+onlyBuiltDependencies:
+  - '@phc/format'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - argon2
+  - esbuild
+  - prisma
