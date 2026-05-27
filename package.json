@@ -9,5 +9,11 @@
     "test": "pnpm --filter @ruta/api test",
     "typecheck": "pnpm --filter @ruta/api typecheck",
     "lint": "pnpm --filter @ruta/api lint"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10"
   }
 }

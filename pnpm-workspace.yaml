@@ -10,6 +10,7 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@orkoruta/db@1.0.0'
   - '@orkoruta/shared@1.0.0'
+  - '@orkoruta/shared@1.1.0'
 onlyBuiltDependencies:
   - '@phc/format'
   - '@prisma/client'
