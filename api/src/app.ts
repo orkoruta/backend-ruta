@@ -5,6 +5,8 @@ import { rutaAdminClientsRouter } from './routes/ruta_admin_clients.js';
 import { authRouter } from './routes/auth.js';
 import { adminCategoriesRouter } from './routes/admin_categories.js';
 import { adminProductsRouter } from './routes/admin_products.js';
+import { adminBuyersRouter } from './routes/admin_buyers.js';
+import { adminCouriersRouter } from './routes/admin_couriers.js';
 import { publicCatalogRouter } from './routes/public_catalog.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { loggerMiddleware } from './middleware/logger.js';
@@ -32,6 +34,8 @@ app.use(authenticate);
 app.use('/ruta-admin/clients', rutaAdminClientsRouter);
 app.use('/admin/categories', adminCategoriesRouter);
 app.use('/admin/products', adminProductsRouter);
+app.use('/admin/buyers', adminBuyersRouter);
+app.use('/admin/couriers', adminCouriersRouter);
 app.use('/uploads', uploadsRouter);
 
 // 404 handler
