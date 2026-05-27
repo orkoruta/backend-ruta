@@ -1,6 +1,7 @@
 {
   "name": "@ruta/backend",
   "private": true,
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "dev": "pnpm --filter @ruta/api dev",
     "build": "pnpm --filter @ruta/api build",

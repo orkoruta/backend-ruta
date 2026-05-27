@@ -5,7 +5,7 @@ services:
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: |
-      npm install -g pnpm
+      corepack enable pnpm
       pnpm install --frozen-lockfile
       pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start
@@ -41,7 +41,7 @@ services:
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: |
-      npm install -g pnpm
+      corepack enable pnpm
       pnpm install --frozen-lockfile
       pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start:worker
