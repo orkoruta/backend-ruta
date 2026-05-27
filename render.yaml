@@ -5,7 +5,7 @@ services:
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: >-
-      npm install pnpm@11.3.0 &&
+      npm install pnpm@11.3.0 --no-save &&
       node_modules/.bin/pnpm install --frozen-lockfile &&
       node_modules/.bin/pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start
@@ -41,7 +41,7 @@ services:
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: >-
-      npm install pnpm@11.3.0 &&
+      npm install pnpm@11.3.0 --no-save &&
       node_modules/.bin/pnpm install --frozen-lockfile &&
       node_modules/.bin/pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start:worker
