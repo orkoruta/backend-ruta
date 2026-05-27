@@ -25,11 +25,11 @@ describe('GET /healthz', () => {
 });
 
 describe('GET /nonexistent', () => {
-  it('debe retornar 404 para rutas no encontradas', async () => {
+  it('debe retornar 401 para rutas protegidas sin autenticación', async () => {
     const res = await request(app)
       .get('/nonexistent')
-      .expect(404);
+      .expect(401);
 
-    expect(res.body).toHaveProperty('code', 'RESOURCE_NOT_FOUND');
+    expect(res.body).toHaveProperty('code', 'AUTHENTICATION_REQUIRED');
   });
 });
