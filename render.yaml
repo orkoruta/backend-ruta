@@ -4,10 +4,10 @@ services:
     runtime: node
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
-    buildCommand: |
-      corepack enable pnpm
-      pnpm install --frozen-lockfile
-      pnpm --filter @ruta/api build
+    buildCommand: >-
+      npm install pnpm@11.3.0 &&
+      node_modules/.bin/pnpm install --frozen-lockfile &&
+      node_modules/.bin/pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start
     healthCheckPath: /healthz
     plan: starter
@@ -40,10 +40,10 @@ services:
     runtime: node
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
-    buildCommand: |
-      corepack enable pnpm
-      pnpm install --frozen-lockfile
-      pnpm --filter @ruta/api build
+    buildCommand: >-
+      npm install pnpm@11.3.0 &&
+      node_modules/.bin/pnpm install --frozen-lockfile &&
+      node_modules/.bin/pnpm --filter @ruta/api build
     startCommand: pnpm --filter @ruta/api start:worker
     plan: starter
     envVars:
