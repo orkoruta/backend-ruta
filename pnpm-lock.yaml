@@ -22,8 +22,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       '@orkoruta/shared':
-        specifier: ^1.2.0
-        version: 1.2.0
+        specifier: ^1.3.0
+        version: 1.3.0
       argon2:
         specifier: ^0.41.1
         version: 0.41.1
@@ -383,8 +383,8 @@ packages:
   '@orkoruta/db@1.0.0':
     resolution: {integrity: sha512-jJBk8Qz3vpHqhjgAavk0dfOEUtMPgVY+uIcdFYy8LKXN+eN01CCwyW6QHMLgC+HmiyhJyzwB7E17Ords2cCSLA==, tarball: https://npm.pkg.github.com/download/@orkoruta/db/1.0.0/d198f74a0a9a69a702f8dfdaef27cecda02421eb}
 
-  '@orkoruta/shared@1.2.0':
-    resolution: {integrity: sha512-WVk75wUsSNiSQYwAiq6teLYC/2z2PlZCGQZW9rBShVWT6avo6gKm/pZ4rhwVdww3+RpEuSKb8eGTN5sduf0pHA==, tarball: https://npm.pkg.github.com/download/@orkoruta/shared/1.2.0/f4366dd1b1170653663f527841a4defb7025736f}
+  '@orkoruta/shared@1.3.0':
+    resolution: {integrity: sha512-Ep5YhhTDS4wYh5qbP1fPiqx3QeLnjZh4K/l/muFalWLQ13+vjHYjIva8rxVJB07TZzQi7NT270wNZoEgHqDW8A==, tarball: https://npm.pkg.github.com/download/@orkoruta/shared/1.3.0/4629dcda7c54bf48d1e424787da7736461f0611a}
 
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
@@ -1602,7 +1602,7 @@ snapshots:
     transitivePeerDependencies:
       - prisma
 
-  '@orkoruta/shared@1.2.0':
+  '@orkoruta/shared@1.3.0':
     dependencies:
       zod: 3.25.76
 
