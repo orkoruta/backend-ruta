@@ -10,6 +10,8 @@ import { adminBuyersRouter } from './routes/admin_buyers.js';
 import { adminCouriersRouter } from './routes/admin_couriers.js';
 import { publicCatalogRouter } from './routes/public_catalog.js';
 import { uploadsRouter } from './routes/uploads.js';
+import { webhooksRouter } from './routes/webhooks.js'; // 2.BACK-3
+import { buyerPaymentRouter } from './routes/buyer_payment.js'; // 2.BACK-3
 import { loggerMiddleware } from './middleware/logger.js';
 import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
@@ -17,6 +19,9 @@ import { HttpError, sendHttpError } from './lib/http_error.js';
 import { ZodError } from 'zod';
 
 const app: Express = express();
+
+// Webhooks: mount before express.json() to preserve raw body for HMAC verification // 2.BACK-3
+app.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
 
 // Global middleware
 app.use(express.json());
@@ -39,6 +44,7 @@ app.use('/admin/products', adminProductsRouter);
 app.use('/admin/buyers', adminBuyersRouter);
 app.use('/admin/couriers', adminCouriersRouter);
 app.use('/uploads', uploadsRouter);
+app.use('/buyer', buyerPaymentRouter); // 2.BACK-3
 
 // 404 handler
 app.use((_req, res) => {
