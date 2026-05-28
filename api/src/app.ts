@@ -15,9 +15,14 @@ import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
 import { HttpError, sendHttpError } from './lib/http_error.js';
 import { ZodError } from 'zod';
-import { buyerOrdersRouter } from './routes/buyer_orders.js'; // 2.BACK-1
+import { initMaintenanceJobs } from './jobs/maintenance_boss.js'; // 2.BACK-4
 
 const app: Express = express();
+
+// 2.BACK-4 — maintenance jobs (order expiration, payment timeout, session/idempotency cleanup)
+initMaintenanceJobs().catch((err: unknown) => {
+  console.error('Maintenance jobs init failed:', err);
+});
 
 // Global middleware
 app.use(express.json());
@@ -40,7 +45,6 @@ app.use('/admin/products', adminProductsRouter);
 app.use('/admin/buyers', adminBuyersRouter);
 app.use('/admin/couriers', adminCouriersRouter);
 app.use('/uploads', uploadsRouter);
-app.use('/buyer/orders', buyerOrdersRouter); // 2.BACK-1
 
 // 404 handler
 app.use((_req, res) => {
