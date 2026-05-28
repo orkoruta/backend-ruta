@@ -35,6 +35,10 @@ const markReadySchema = z.object({
   delivery_carrier_type: z.enum(['OWN_FLEET', 'EXTERNAL_COURIER']).optional(),
 });
 
+const rejectCancelRequestBodySchema = z.object({
+  reason: z.string().min(1, 'La razón del rechazo es requerida'),
+});
+
 // ── Actor mapping ─────────────────────────────────────────────────────────────
 
 function toTransitionActor(userType: string): TransitionActor {
@@ -371,6 +375,100 @@ export const adminOrdersService = {
 
     return serializeOrder(order);
   },
+
+  async approveCancelRequest(clientId: number, orderId: number, actor: AuthenticatedUser) {
+    const transitionActor = toTransitionActor(actor.user_type);
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+      assertTransition(
+        existing.order_status as OrderStatus,
+        OrderStatus.CANCEL_REQUEST_APPROVED,
+        transitionActor,
+      );
+      return tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { order_status: OrderStatus.CANCEL_REQUEST_APPROVED, updated_at: new Date() },
+        include: orderInclude,
+      });
+    });
+    return serializeOrder(order);
+  },
+
+  async rejectCancelRequest(
+    clientId: number,
+    orderId: number,
+    actor: AuthenticatedUser,
+    reason: string,
+  ) {
+    const transitionActor = toTransitionActor(actor.user_type);
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+      assertTransition(
+        existing.order_status as OrderStatus,
+        OrderStatus.CANCEL_REQUEST_REJECTED,
+        transitionActor,
+      );
+      return tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { order_status: OrderStatus.CANCEL_REQUEST_REJECTED, updated_at: new Date() },
+        include: orderInclude,
+      });
+    });
+    void reason; // reason se persiste en audit_events (responsabilidad futura)
+    return serializeOrder(order);
+  },
+
+  async returnToOrigin(clientId: number, orderId: number, actor: AuthenticatedUser) {
+    const transitionActor = toTransitionActor(actor.user_type);
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+      assertTransition(
+        existing.order_status as OrderStatus,
+        OrderStatus.RETURN_TO_ORIGIN,
+        transitionActor,
+      );
+      return tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { order_status: OrderStatus.RETURN_TO_ORIGIN, updated_at: new Date() },
+        include: orderInclude,
+      });
+    });
+    return serializeOrder(order);
+  },
+
+  async returnToOriginReceived(clientId: number, orderId: number, actor: AuthenticatedUser) {
+    const transitionActor = toTransitionActor(actor.user_type);
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+      assertTransition(
+        existing.order_status as OrderStatus,
+        OrderStatus.RETURN_TO_ORIGIN_RECEIVED,
+        transitionActor,
+      );
+      return tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { order_status: OrderStatus.RETURN_TO_ORIGIN_RECEIVED, updated_at: new Date() },
+        include: orderInclude,
+      });
+    });
+    return serializeOrder(order);
+  },
 };
 
 // ── Router factory ────────────────────────────────────────────────────────────
@@ -440,6 +538,47 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
       const { id } = orderIdParamsSchema.parse(req.params);
       const { delivery_carrier_type } = markReadySchema.parse(req.body ?? {});
       res.json(await service.markReady(req.user!.client_id, id, req.user!, delivery_carrier_type));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/approve-cancel-request
+  router.post('/:id/approve-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await service.approveCancelRequest(req.user!.client_id, id, req.user!));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/reject-cancel-request
+  router.post('/:id/reject-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const { reason } = rejectCancelRequestBodySchema.parse(req.body);
+      res.json(await service.rejectCancelRequest(req.user!.client_id, id, req.user!, reason));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/return-to-origin
+  router.post('/:id/return-to-origin', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await service.returnToOrigin(req.user!.client_id, id, req.user!));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/return-to-origin-received
+  router.post('/:id/return-to-origin-received', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await service.returnToOriginReceived(req.user!.client_id, id, req.user!));
     } catch (error) {
       next(error);
     }
