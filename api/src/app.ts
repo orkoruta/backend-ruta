@@ -15,6 +15,7 @@ import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
 import { HttpError, sendHttpError } from './lib/http_error.js';
 import { ZodError } from 'zod';
+import { buyerOrdersRouter } from './routes/buyer_orders.js'; // 2.BACK-1
 
 const app: Express = express();
 
@@ -39,6 +40,7 @@ app.use('/admin/products', adminProductsRouter);
 app.use('/admin/buyers', adminBuyersRouter);
 app.use('/admin/couriers', adminCouriersRouter);
 app.use('/uploads', uploadsRouter);
+app.use('/buyer/orders', buyerOrdersRouter); // 2.BACK-1
 
 // 404 handler
 app.use((_req, res) => {
