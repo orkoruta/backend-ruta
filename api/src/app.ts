@@ -15,8 +15,14 @@ import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
 import { HttpError, sendHttpError } from './lib/http_error.js';
 import { ZodError } from 'zod';
+import { initMaintenanceJobs } from './jobs/maintenance_boss.js'; // 2.BACK-4
 
 const app: Express = express();
+
+// 2.BACK-4 — maintenance jobs (order expiration, payment timeout, session/idempotency cleanup)
+initMaintenanceJobs().catch((err: unknown) => {
+  console.error('Maintenance jobs init failed:', err);
+});
 
 // Global middleware
 app.use(express.json());
