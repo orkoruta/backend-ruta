@@ -4,12 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockDeleteMany = vi.fn().mockResolvedValue({ count: 0 });
 const mockFindMany = vi.fn().mockResolvedValue([]);
+const mockUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
 
 vi.mock('@orkoruta/db', () => ({
   withTenant: vi.fn((_clientId: number, _role: string, fn: (tx: unknown) => unknown) =>
     fn({
       clients: { findMany: mockFindMany },
-      orders: { findMany: mockFindMany },
+      orders: { findMany: mockFindMany, updateMany: mockUpdateMany },
       idempotency_keys: { deleteMany: mockDeleteMany },
       sessions: { deleteMany: mockDeleteMany },
     })
@@ -17,7 +18,7 @@ vi.mock('@orkoruta/db', () => ({
   withTenantReadOnly: vi.fn((_clientId: number, _role: string, fn: (tx: unknown) => unknown) =>
     fn({
       clients: { findMany: mockFindMany },
-      orders: { findMany: mockFindMany },
+      orders: { findMany: mockFindMany, updateMany: mockUpdateMany },
       idempotency_keys: { deleteMany: mockDeleteMany },
       sessions: { deleteMany: mockDeleteMany },
     })
@@ -61,6 +62,11 @@ import {
   cleanClientSessions,
   daysAgo,
 } from '../jobs/cleanup_sessions.job.js';
+
+import {
+  processAutoConfirmDelivered,
+  autoConfirmDeliveredOrders,
+} from '../jobs/auto_confirm_delivered.job.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // daysAgo helper
@@ -316,5 +322,80 @@ describe('processCleanupSessions', () => {
     mockFindMany.mockResolvedValueOnce([]);
     await processCleanupSessions();
     expect(mockDeleteMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// autoConfirmDeliveredOrders
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('autoConfirmDeliveredOrders', () => {
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+  });
+
+  it('does nothing when no DELIVERED orders past threshold', async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+    await autoConfirmDeliveredOrders(1, 72);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('transitions expired DELIVERED order to CONFIRMED_BY_SYSTEM', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: BigInt(7) }]);
+    await autoConfirmDeliveredOrders(1, 72);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { order_status: 'CONFIRMED_BY_SYSTEM' },
+      }),
+    );
+  });
+
+  it('does not touch DELIVERED orders within threshold (empty query result)', async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+    await autoConfirmDeliveredOrders(1, 72);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not touch orders in other states (not returned by query)', async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+    await autoConfirmDeliveredOrders(1, 72);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('processes multiple expired orders for the same client', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: BigInt(10) }, { id: BigInt(11) }, { id: BigInt(12) }]);
+    await autoConfirmDeliveredOrders(1, 72);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// processAutoConfirmDelivered
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('processAutoConfirmDelivered', () => {
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+    mockGetParameterInt.mockReset().mockResolvedValue(72);
+  });
+
+  it('skips when no active FULL clients', async () => {
+    mockFindMany.mockResolvedValue([]);
+    await processAutoConfirmDelivered();
+    expect(mockGetParameterInt).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('processes each active FULL client', async () => {
+    mockFindMany
+      .mockResolvedValueOnce([{ id: BigInt(1) }, { id: BigInt(2) }])
+      .mockResolvedValue([]);
+    mockGetParameterInt.mockResolvedValue(72);
+    await processAutoConfirmDelivered();
+    // 1 clients call + 2 clients × 1 orders query = 3 total findMany calls
+    expect(mockFindMany).toHaveBeenCalledTimes(3);
   });
 });

@@ -6,6 +6,7 @@ import { registerPaymentTimeoutJob } from './payment_timeout.job.js';
 import { registerCleanupIdempotencyJob } from './cleanup_idempotency.job.js';
 import { registerCleanupSessionsJob } from './cleanup_sessions.job.js';
 import { registerValidateOrderJob } from './validate_order.job.js'; // 2.BACK-2
+import { registerAutoConfirmDeliveredJob } from './auto_confirm_delivered.job.js'; // 3.BACK-6
 
 let initPromise: Promise<void> | null = null;
 
@@ -23,6 +24,7 @@ export async function initMaintenanceJobs(): Promise<void> {
     await registerCleanupIdempotencyJob(boss);
     await registerCleanupSessionsJob(boss);
     await registerValidateOrderJob(boss); // 2.BACK-2
+    await registerAutoConfirmDeliveredJob(boss); // 3.BACK-6
 
     logger.info('Maintenance jobs initialized');
   })();
