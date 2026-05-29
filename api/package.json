@@ -14,8 +14,8 @@
     "lint": "echo 'lint ok'"
   },
   "dependencies": {
-    "@orkoruta/db": "file:../../packages-ruta/db",
-    "@orkoruta/shared": "file:../../packages-ruta/shared",
+    "@orkoruta/db": "^1.0.0",
+    "@orkoruta/shared": "^1.2.0",
     "@types/cors": "^2.8.19",
     "argon2": "^0.41.1",
     "cors": "^2.8.6",
