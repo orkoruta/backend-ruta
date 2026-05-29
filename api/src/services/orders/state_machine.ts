@@ -303,6 +303,10 @@ function buildTransitions(): TransitionMap {
   addRule(m, OrderStatus.READY_FOR_PICKUP, OrderStatus.PICKUP_POINT_ISSUE, {
     actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
   });
+  addRule(m, OrderStatus.READY_FOR_PICKUP, OrderStatus.DELIVERED, {
+    actors: ['OPERATOR_CLIENT', 'ADMIN_CLIENT'],
+  });
+  addRule(m, OrderStatus.READY_FOR_PICKUP, OrderStatus.EXPIRED, { actors: ['SYSTEM'] }); // 4.BACK-1
 
   // AT_PICKUP_POINT (4.BACK-1)
   addRule(m, OrderStatus.AT_PICKUP_POINT, OrderStatus.CUSTOMER_ARRIVED_AT_PICKUP_POINT, {

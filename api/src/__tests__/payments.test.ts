@@ -182,6 +182,9 @@ const allowedTransitions: AllowedTransition[] = [
   { from: OrderStatus.READY_FOR_PICKUP, to: OrderStatus.AT_PICKUP_POINT, actors: adminActors },
   { from: OrderStatus.READY_FOR_PICKUP, to: OrderStatus.CANCELLED_BY_CUSTOMER, actors: ['BUYER'] },
   { from: OrderStatus.READY_FOR_PICKUP, to: OrderStatus.PICKUP_POINT_ISSUE, actors: adminActors },
+  // 4.BACK-1 — direct handoff (simplified path) and system expiration
+  { from: OrderStatus.READY_FOR_PICKUP, to: OrderStatus.DELIVERED, actors: ['OPERATOR_CLIENT', 'ADMIN_CLIENT'] },
+  { from: OrderStatus.READY_FOR_PICKUP, to: OrderStatus.EXPIRED, actors: ['SYSTEM'] },
   { from: OrderStatus.AT_PICKUP_POINT, to: OrderStatus.CUSTOMER_ARRIVED_AT_PICKUP_POINT, actors: ['OPERATOR_CLIENT', 'ADMIN_CLIENT', 'ADMIN_RUTA'] },
   { from: OrderStatus.AT_PICKUP_POINT, to: OrderStatus.PICKUP_EXPIRED, actors: ['SYSTEM'] },
   { from: OrderStatus.AT_PICKUP_POINT, to: OrderStatus.CANCELLED_BY_CUSTOMER, actors: ['BUYER'] },
