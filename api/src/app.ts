@@ -1,4 +1,5 @@
 import express, { type Express } from 'express';
+import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { healthzRouter } from './routes/healthz.js';
 import { rutaAdminClientsRouter } from './routes/ruta_admin_clients.js';
@@ -23,6 +24,12 @@ import { adminOrderAssignmentRouter } from './routes/admin_order_assignment.js';
 import { courierOrdersRouter } from './routes/courier_orders.js'; // 3.BACK-2+3
 
 const app: Express = express();
+
+// CORS: allow local frontends in development
+app.use(cors({
+  origin: ['http://localhost:3002', 'http://localhost:3003'],
+  credentials: true,
+}));
 
 // Webhooks: mount before express.json() to preserve raw body for HMAC verification // 2.BACK-3
 app.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);

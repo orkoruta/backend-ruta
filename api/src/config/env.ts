@@ -1,3 +1,8 @@
+import dotenv from 'dotenv';
+import { resolve } from 'node:path';
+
+dotenv.config({ path: resolve(process.cwd(), '..', '.env') });
+
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '3001', 10),
