@@ -129,7 +129,7 @@ export const collectionService = {
    * @param orderId   ID del pedido
    * @param input     Datos del cobro
    */
-  async recordCollection(clientId: number, courierId: number, orderId: number, input: RecordCollectionBody) {
+  async recordCollection(clientId: number, courierId: number, orderId: number, input: RecordCollectionBody, _evidenceFile?: Express.Multer.File) {
     const validatedInput = recordCollectionBodySchema.parse(input);
 
     return withTenant(clientId, 'COURIER', async (tx) => {
