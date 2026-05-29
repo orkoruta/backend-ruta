@@ -19,6 +19,8 @@ import { HttpError, sendHttpError } from './lib/http_error.js';
 import { ZodError } from 'zod';
 import { buyerOrdersRouter } from './routes/buyer_orders.js'; // 2.BACK-1
 import { adminOrdersRouter } from './routes/admin_orders.js'; // 2.BACK-2
+import { adminOrderAssignmentRouter } from './routes/admin_order_assignment.js'; // 3.BACK-1
+import { courierOrdersRouter } from './routes/courier_orders.js'; // 3.BACK-2+3
 
 const app: Express = express();
 
@@ -49,6 +51,8 @@ app.use('/uploads', uploadsRouter);
 app.use('/buyer/orders', buyerOrdersRouter); // 2.BACK-1
 app.use('/buyer', buyerPaymentRouter); // 2.BACK-3
 app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
+app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
+app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
 
 // 404 handler
 app.use((_req, res) => {
