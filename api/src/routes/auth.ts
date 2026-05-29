@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { loginSchema, loginRutaAdminSchema, refreshSessionSchema, logoutSchema } from '@orkoruta/shared';
 import { authService } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 
 type AuthService = typeof authService;
@@ -49,7 +48,7 @@ function requestContext(req: Request) {
 export function createAuthRouter(service: AuthService = authService): Router {
   const router = Router();
 
-  router.post('/register', requireIdempotencyKey, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = registerSchema.parse(req.body);
       const result = await service.register(
@@ -66,7 +65,7 @@ export function createAuthRouter(service: AuthService = authService): Router {
     }
   });
 
-  router.post('/login', requireIdempotencyKey, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = loginSchema.parse(req.body);
       const result = await service.login(
@@ -83,7 +82,7 @@ export function createAuthRouter(service: AuthService = authService): Router {
     }
   });
 
-  router.post('/ruta-admin/login', requireIdempotencyKey, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/ruta-admin/login', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = loginRutaAdminSchema.parse(req.body);
       const result = await service.loginRutaAdmin(
