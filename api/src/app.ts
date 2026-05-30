@@ -28,6 +28,7 @@ import { createAdminParametersRouter } from './routes/admin_parameters.js'; // 5
 import { createAdminAuditRouter, createRutaAdminAuditRouter } from './routes/admin_audit.js'; // 5.BACK-34
 import { createAdminMetricsRouter } from './routes/admin_metrics.js'; // 5.BACK-2
 import { createRutaAdminMetricsRouter } from './routes/ruta_admin_metrics.js'; // 5.BACK-2
+import { createControlViewRouter } from './routes/ruta_admin_control_view.js'; // 5.BACK-1
 
 const app: Express = express();
 
@@ -73,6 +74,7 @@ app.use('/admin/audit-events', createAdminAuditRouter()); // 5.BACK-34
 app.use('/ruta-admin/audit-events', createRutaAdminAuditRouter()); // 5.BACK-34
 app.use('/admin/metrics', createAdminMetricsRouter()); // 5.BACK-2
 app.use('/ruta-admin/metrics', createRutaAdminMetricsRouter()); // 5.BACK-2
+app.use('/ruta-admin/control-view', createControlViewRouter()); // 5.BACK-1
 
 // 404 handler
 app.use((_req, res) => {

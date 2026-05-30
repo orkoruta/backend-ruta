@@ -18,14 +18,14 @@ export interface GlobalMetrics {
 }
 
 type ClientTypeRow = { client_type: string; count: bigint };
-type CountRow = { count: bigint };
+type OrdersTodayRow = { count: bigint };
 type OrderStatusRow = { order_status: string; count: bigint };
 type RevenueRow = { revenue: string | null };
 
 export const globalMetricsService = {
   async getGlobalMetrics(): Promise<GlobalMetrics> {
     return withTenantReadOnly(0, 'ADMIN_RUTA', async (tx) => {
-      // Active clients by type (cross-tenant)
+      // Active clients by type (cross-tenant, on the clients table — not partitioned)
       const clientTypeRows = await tx.$queryRaw<ClientTypeRow[]>`
         SELECT client_type, COUNT(*)::bigint AS count
         FROM ruta.clients
@@ -39,7 +39,7 @@ export const globalMetricsService = {
       }));
 
       // Total orders today (cross-tenant)
-      const [todayRow] = await tx.$queryRaw<CountRow[]>`
+      const [todayRow] = await tx.$queryRaw<OrdersTodayRow[]>`
         SELECT COUNT(*)::bigint AS count
         FROM ruta.orders
         WHERE created_at >= DATE_TRUNC('day', NOW())
@@ -58,7 +58,7 @@ export const globalMetricsService = {
         count: Number(r.count),
       }));
 
-      // Global revenue last 7 days
+      // Global revenue last 7 days (terminal/confirmed statuses)
       const [revenueRow] = await tx.$queryRaw<RevenueRow[]>`
         SELECT COALESCE(SUM(total), 0)::text AS revenue
         FROM ruta.orders

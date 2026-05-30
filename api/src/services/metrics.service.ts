@@ -14,22 +14,24 @@ export interface ClientMetrics {
 }
 
 type OrderStatusRow = { order_status: string; count: bigint };
-type CountRow = { count: bigint };
+type CourierCountRow = { count: bigint };
+type BuyerCountRow = { count: bigint };
+type OrdersTodayRow = { count: bigint };
 type RevenueRow = { revenue: string | null };
 
 export const metricsService = {
   async getClientMetrics(clientId: number): Promise<ClientMetrics> {
     return withTenantReadOnly(clientId, 'ADMIN_CLIENT', async (tx) => {
       // Orders today
-      const [todayRow] = await tx.$queryRaw<CountRow[]>`
+      const [todayRows] = await tx.$queryRaw<OrdersTodayRow[]>`
         SELECT COUNT(*)::bigint AS count
         FROM ruta.orders
         WHERE client_id = ${BigInt(clientId)}
           AND created_at >= DATE_TRUNC('day', NOW())
       `;
-      const orders_today = Number(todayRow?.count ?? 0);
+      const orders_today = Number(todayRows?.count ?? 0);
 
-      // Orders by status
+      // Orders by status (all, not just today)
       const statusRows = await tx.$queryRaw<OrderStatusRow[]>`
         SELECT order_status, COUNT(*)::bigint AS count
         FROM ruta.orders
@@ -42,7 +44,7 @@ export const metricsService = {
         count: Number(r.count),
       }));
 
-      // Revenue last 7 days (terminal/confirmed statuses)
+      // Revenue last 7 days (orders with terminal/confirmed statuses)
       const [revenueRow] = await tx.$queryRaw<RevenueRow[]>`
         SELECT COALESCE(SUM(total), 0)::text AS revenue
         FROM ruta.orders
@@ -53,7 +55,7 @@ export const metricsService = {
       const revenue_last_7_days = parseFloat(revenueRow?.revenue ?? '0');
 
       // Active couriers
-      const [courierRow] = await tx.$queryRaw<CountRow[]>`
+      const [courierRow] = await tx.$queryRaw<CourierCountRow[]>`
         SELECT COUNT(*)::bigint AS count
         FROM ruta.users
         WHERE client_id = ${BigInt(clientId)}
@@ -63,7 +65,7 @@ export const metricsService = {
       const active_couriers = Number(courierRow?.count ?? 0);
 
       // Registered active buyers
-      const [buyerRow] = await tx.$queryRaw<CountRow[]>`
+      const [buyerRow] = await tx.$queryRaw<BuyerCountRow[]>`
         SELECT COUNT(*)::bigint AS count
         FROM ruta.users
         WHERE client_id = ${BigInt(clientId)}
