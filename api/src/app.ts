@@ -24,6 +24,10 @@ import { adminOrderAssignmentRouter } from './routes/admin_order_assignment.js';
 import { courierOrdersRouter } from './routes/courier_orders.js'; // 3.BACK-2+3
 import { adminPickupPointsRouter } from './routes/admin_pickup_points.js'; // 4.FIX-1
 import { createAdminPickupOpsRouter } from './routes/admin_pickup_ops.js'; // 4.BACK-1
+import { createAdminParametersRouter } from './routes/admin_parameters.js'; // 5.BACK-34
+import { createAdminAuditRouter, createRutaAdminAuditRouter } from './routes/admin_audit.js'; // 5.BACK-34
+import { createAdminMetricsRouter } from './routes/admin_metrics.js'; // 5.BACK-2
+import { createRutaAdminMetricsRouter } from './routes/ruta_admin_metrics.js'; // 5.BACK-2
 
 const app: Express = express();
 
@@ -64,6 +68,11 @@ app.use('/admin', createAdminPickupOpsRouter()); // 4.BACK-1
 app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
 app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
 app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
+app.use('/admin/parameters', createAdminParametersRouter()); // 5.BACK-34
+app.use('/admin/audit-events', createAdminAuditRouter()); // 5.BACK-34
+app.use('/ruta-admin/audit-events', createRutaAdminAuditRouter()); // 5.BACK-34
+app.use('/admin/metrics', createAdminMetricsRouter()); // 5.BACK-2
+app.use('/ruta-admin/metrics', createRutaAdminMetricsRouter()); // 5.BACK-2
 
 // 404 handler
 app.use((_req, res) => {
