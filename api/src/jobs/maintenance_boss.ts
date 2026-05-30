@@ -7,7 +7,9 @@ import { registerCleanupIdempotencyJob } from './cleanup_idempotency.job.js';
 import { registerCleanupSessionsJob } from './cleanup_sessions.job.js';
 import { registerValidateOrderJob } from './validate_order.job.js'; // 2.BACK-2
 import { registerAutoConfirmDeliveredJob } from './auto_confirm_delivered.job.js'; // 3.BACK-6
+import { registerWebhookSenderJob } from './webhook_sender.job.js'; // 6.INFRA-3
 
+let bossInstance: PgBoss | null = null;
 let initPromise: Promise<void> | null = null;
 
 export async function initMaintenanceJobs(): Promise<void> {
@@ -18,6 +20,7 @@ export async function initMaintenanceJobs(): Promise<void> {
 
     const boss = new PgBoss(env.DATABASE_URL);
     await boss.start();
+    bossInstance = boss;
 
     await registerOrderExpirationJob(boss);
     await registerPaymentTimeoutJob(boss);
@@ -25,9 +28,15 @@ export async function initMaintenanceJobs(): Promise<void> {
     await registerCleanupSessionsJob(boss);
     await registerValidateOrderJob(boss); // 2.BACK-2
     await registerAutoConfirmDeliveredJob(boss); // 3.BACK-6
+    await registerWebhookSenderJob(boss); // 6.INFRA-3
 
     logger.info('Maintenance jobs initialized');
   })();
 
   return initPromise;
+}
+
+/** Returns the shared pg-boss instance (only available after initMaintenanceJobs resolves). */
+export function getMaintenanceBoss(): PgBoss | null {
+  return bossInstance;
 }
