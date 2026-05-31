@@ -119,21 +119,23 @@ describe('resolveParamInt', () => {
 describe('expireDraftOrders', () => {
   beforeEach(() => {
     mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
     mockDeleteMany.mockReset().mockResolvedValue({ count: 0 });
   });
 
   it('does nothing when no expired DRAFT orders', async () => {
     mockFindMany.mockResolvedValueOnce([]);
     await expireDraftOrders(1, 1440);
-    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('logs warn for each expired DRAFT order (state_machine TODO)', async () => {
-    const { logger } = await import('../middleware/logger.js');
-    vi.mocked(logger.warn).mockClear();
+  it('transitions each expired DRAFT order to EXPIRED', async () => {
     mockFindMany.mockResolvedValueOnce([{ id: BigInt(42) }, { id: BigInt(43) }]);
     await expireDraftOrders(1, 1440);
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledTimes(2);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ order_status: 'EXPIRED' }) }),
+    );
   });
 });
 
@@ -142,20 +144,24 @@ describe('expireDraftOrders', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('expirePendingConfirmOrders', () => {
-  beforeEach(() => mockFindMany.mockReset());
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+  });
 
   it('does nothing when no expired PENDING_CONFIRM orders', async () => {
     mockFindMany.mockResolvedValueOnce([]);
     await expirePendingConfirmOrders(1, 60);
-    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('logs warn for each expired PENDING_CONFIRM order', async () => {
-    const { logger } = await import('../middleware/logger.js');
-    vi.mocked(logger.warn).mockClear();
+  it('transitions each expired PENDING_CONFIRM order to EXPIRED', async () => {
     mockFindMany.mockResolvedValueOnce([{ id: BigInt(10) }]);
     await expirePendingConfirmOrders(1, 60);
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ order_status: 'EXPIRED' }) }),
+    );
   });
 });
 
@@ -191,23 +197,26 @@ describe('processOrderExpiration', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('timeoutPendingPayments', () => {
-  beforeEach(() => mockFindMany.mockReset());
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+  });
 
   it('does nothing when no timed-out payments', async () => {
     mockFindMany.mockResolvedValueOnce([]);
     await timeoutPendingPayments(1, 15);
-    expect(mockDeleteMany).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('logs warn for each timed-out payment (state_machine TODO)', async () => {
-    const { logger } = await import('../middleware/logger.js');
-    vi.mocked(logger.warn).mockClear();
+  it('transitions each timed-out order to EXPIRED', async () => {
     mockFindMany.mockResolvedValueOnce([{ id: BigInt(99) }]);
     await timeoutPendingPayments(1, 15);
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      expect.objectContaining({ orderId: '99', clientId: 1 }),
-      expect.stringContaining('2.BACK-1'),
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: BigInt(99), client_id: BigInt(1) }),
+        data: expect.objectContaining({ order_status: 'EXPIRED' }),
+      }),
     );
   });
 });
