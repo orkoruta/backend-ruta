@@ -18,9 +18,12 @@ export const env = {
   WOMPI_PUBLIC_KEY: process.env.WOMPI_PUBLIC_KEY || '',
   WOMPI_PRIVATE_KEY: process.env.WOMPI_PRIVATE_KEY || '',
   WOMPI_WEBHOOK_SECRET: process.env.WOMPI_WEBHOOK_SECRET || '',
+  CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:3002,http://localhost:3003',
 } as const;
 
 export type Env = typeof env;
+
+const DEV_JWT_SECRET = 'dev-secret-change-in-production';
 
 export function validateEnv(): void {
   const required: Array<keyof Env> = [
@@ -30,6 +33,11 @@ export function validateEnv(): void {
   const missing = required.filter((key) => !env[key]);
   if (missing.length > 0) {
     console.error(`Missing required env vars: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (env.NODE_ENV === 'production' && env.JWT_SECRET === DEV_JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET must be set to a secure value in production');
     process.exit(1);
   }
 }

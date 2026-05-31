@@ -13,7 +13,7 @@ import { publicCatalogRouter } from './routes/public_catalog.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { webhooksRouter } from './routes/webhooks.js'; // 2.BACK-3
 import { buyerPaymentRouter } from './routes/buyer_payment.js'; // 2.BACK-3
-import { loggerMiddleware } from './middleware/logger.js';
+import { loggerMiddleware, logger } from './middleware/logger.js';
 import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
 import { HttpError, sendHttpError } from './lib/http_error.js';
@@ -22,6 +22,7 @@ import { buyerOrdersRouter } from './routes/buyer_orders.js'; // 2.BACK-1
 import { adminOrdersRouter } from './routes/admin_orders.js'; // 2.BACK-2
 import { adminOrderAssignmentRouter } from './routes/admin_order_assignment.js'; // 3.BACK-1
 import { courierOrdersRouter } from './routes/courier_orders.js'; // 3.BACK-2+3
+import { courierCollectionRouter } from './routes/courier_collection.js'; // 3.BACK-3 COD
 import { adminPickupPointsRouter } from './routes/admin_pickup_points.js'; // 4.FIX-1
 import { createAdminPickupOpsRouter } from './routes/admin_pickup_ops.js'; // 4.BACK-1
 import { createAdminParametersRouter } from './routes/admin_parameters.js'; // 5.BACK-34
@@ -30,12 +31,14 @@ import { createAdminMetricsRouter } from './routes/admin_metrics.js'; // 5.BACK-
 import { createRutaAdminMetricsRouter } from './routes/ruta_admin_metrics.js'; // 5.BACK-2
 import { createControlViewRouter } from './routes/ruta_admin_control_view.js'; // 5.BACK-1
 import { createAdminWebhooksRouter } from './routes/admin_webhooks.js'; // 6.INFRA-3
+import { env } from './config/env.js';
 
 const app: Express = express();
 
-// CORS: allow local frontends in development
+// CORS: origins configured via CORS_ORIGINS env var (comma-separated)
+const corsOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
 app.use(cors({
-  origin: ['http://localhost:3002', 'http://localhost:3003'],
+  origin: corsOrigins,
   credentials: true,
 }));
 
@@ -70,6 +73,7 @@ app.use('/admin', createAdminPickupOpsRouter()); // 4.BACK-1
 app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
 app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
 app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
+app.use('/courier', courierCollectionRouter); // 3.BACK-3 COD collection
 app.use('/admin/parameters', createAdminParametersRouter()); // 5.BACK-34
 app.use('/admin/audit-events', createAdminAuditRouter()); // 5.BACK-34
 app.use('/ruta-admin/audit-events', createRutaAdminAuditRouter()); // 5.BACK-34
@@ -98,8 +102,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
     return;
   }
 
-  console.error('Unhandled error:', err);
-  res.status(500).json(toApiError('TENANT_ISOLATION_VIOLATION', 'Error interno del servidor'));
+  logger.error({ err }, 'Unhandled error');
+  res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Error interno del servidor' });
 });
 
 export { app };

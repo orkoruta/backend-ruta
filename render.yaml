@@ -32,6 +32,10 @@ services:
         sync: false
       - key: WOMPI_WEBHOOK_SECRET
         sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: LOGTAIL_TOKEN
+        sync: false
       - key: NPM_TOKEN
         sync: false
 
