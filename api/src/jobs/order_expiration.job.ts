@@ -1,5 +1,7 @@
 import type { PgBoss } from 'pg-boss';
-import { withTenantReadOnly } from '@orkoruta/db';
+import { withTenant, withTenantReadOnly } from '@orkoruta/db';
+import { OrderStatus } from '@orkoruta/shared';
+import { assertTransition } from '../services/orders/state_machine.js';
 import { getParameterInt } from '../lib/parameter.js';
 import { logger } from '../middleware/logger.js';
 
@@ -56,13 +58,14 @@ export async function expireDraftOrders(clientId: number, draftMinutes: number):
   logger.info({ clientId, count: expiredOrders.length }, 'DRAFT orders ready to expire');
 
   for (const order of expiredOrders) {
-    // TODO 2.BACK-1: uncomment when api/src/services/orders/state_machine.ts is merged
-    // from feat/back-2-1. Replace this block with:
-    //   await stateMachine.transition(order.id, clientId, { type: 'EXPIRE', actor: 'SYSTEM' });
-    logger.warn(
-      { orderId: String(order.id), clientId },
-      'DRAFT order expired — awaiting state_machine (2.BACK-1)',
+    assertTransition(OrderStatus.DRAFT, OrderStatus.EXPIRED, 'SYSTEM', {});
+    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
+      tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId) },
+        data: { order_status: OrderStatus.EXPIRED, updated_at: new Date() },
+      }),
     );
+    logger.info({ orderId: String(order.id), clientId }, 'DRAFT order expired by system');
   }
 }
 
@@ -89,13 +92,14 @@ export async function expirePendingConfirmOrders(
   logger.info({ clientId, count: expiredOrders.length }, 'PENDING_CONFIRM orders ready to expire');
 
   for (const order of expiredOrders) {
-    // TODO 2.BACK-1: uncomment when api/src/services/orders/state_machine.ts is merged
-    // from feat/back-2-1. Replace this block with:
-    //   await stateMachine.transition(order.id, clientId, { type: 'EXPIRE', actor: 'SYSTEM' });
-    logger.warn(
-      { orderId: String(order.id), clientId },
-      'PENDING_CONFIRM order expired — awaiting state_machine (2.BACK-1)',
+    assertTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.EXPIRED, 'SYSTEM', {});
+    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
+      tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId) },
+        data: { order_status: OrderStatus.EXPIRED, updated_at: new Date() },
+      }),
     );
+    logger.info({ orderId: String(order.id), clientId }, 'PENDING_CONFIRM order expired by system');
   }
 }
 
