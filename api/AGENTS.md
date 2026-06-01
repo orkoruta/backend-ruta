@@ -71,17 +71,22 @@ en este repositorio, independientemente del entorno o la herramienta de IA.
 
 ## 0.3 Fase 3 — Estrategia local-first (vigente hasta deploy final)
 
-**PROHIBIDO durante el desarrollo de Fase 3:**
-- Push a GitHub (en ningún repo del proyecto).
-- Abrir PRs o mergear ramas.
-- Publicar `@orkoruta/shared` u otros paquetes a GitHub Packages.
-- Desplegar en Render.
+Esta restricción aplica al **código de funcionalidades de Fase 3**,
+no a cambios de documentación, configuración ni reglas del proyecto
+(CLAUDE.md, AGENTS.md, plan files, etc.), que pueden commitearse y
+pushearse a GitHub con normalidad.
 
-Todo el desarrollo de Fase 3 ocurre en **ramas locales**. El deploy
-a GitHub y a producción se ejecuta **una sola vez**, cuando todos los
+**PROHIBIDO para código de funcionalidades de Fase 3:**
+- Push a GitHub de ramas con implementación de Fase 3.
+- Abrir PRs o mergear código de Fase 3.
+- Publicar a GitHub Packages bumps de `@orkoruta/shared` generados
+  por Fase 3.
+- Desplegar en Render código de Fase 3.
+
+Todo el **código de funcionalidades** de Fase 3 vive en ramas locales
+y se sube a GitHub en un único deploy al finalizar, cuando todos los
 bloques estén completos y la Validación Pre-Deploy Final esté aprobada.
-Ver `docs-ruta/plan_fase3.md` para el detalle de la estrategia y el
-checklist de validación.
+Ver `docs-ruta/plan_fase3.md` para el detalle y el checklist.
 
 ---
 
