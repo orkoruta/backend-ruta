@@ -5,7 +5,7 @@
  * Se ejecuta cada 5 minutos. Solo aplica a Clientes FULL activos.
  *
  * Parámetro: `order.pickup_expiration_minutes` (fallback: 1440 min = 24h).
- * Transición: READY_FOR_PICKUP → EXPIRED (actor: SYSTEM).
+ * Transición: READY_FOR_PICKUP → EXPIRED → CLOSED (actor: SYSTEM, atómica).
  */
 
 import type { PgBoss } from 'pg-boss';
@@ -73,18 +73,28 @@ export async function expireReadyForPickupOrders(
 
   for (const order of orders) {
     assertTransition(OrderStatus.READY_FOR_PICKUP, OrderStatus.EXPIRED, 'SYSTEM', {});
-    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
-      tx.orders.updateMany({
-        where: { id: order.id, client_id: BigInt(clientId) },
+    assertTransition(OrderStatus.EXPIRED, OrderStatus.CLOSED, 'SYSTEM', {});
+    await withTenant(clientId, 'ADMIN_RUTA', async (tx) => {
+      const now = new Date();
+      const expired = await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.READY_FOR_PICKUP },
+        data: { order_status: OrderStatus.EXPIRED, updated_at: now },
+      });
+      if (expired.count === 0) return;
+      await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.EXPIRED },
         data: {
-          order_status: OrderStatus.EXPIRED,
-          updated_at: new Date(),
+          order_status: OrderStatus.CLOSED,
+          closure_reason: 'PICKUP_EXPIRED',
+          refund_status: 'REFUND_NOT_REQUIRED',
+          closed_at: now,
+          updated_at: now,
         },
-      }),
-    );
+      });
+    });
     logger.info(
       { orderId: String(order.id), clientId },
-      'READY_FOR_PICKUP order expired by system',
+      'READY_FOR_PICKUP order expired and closed by system',
     );
   }
 }

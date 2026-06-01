@@ -48,6 +48,7 @@ export async function timeoutPendingPayments(
     tx.orders.findMany({
       where: {
         client_id: BigInt(clientId),
+        order_status: OrderStatus.ORDER_SUBMITTED,
         payment_status: 'PENDING_ONLINE_PAYMENT',
         submitted_at: { lt: threshold, not: null },
       },
@@ -64,13 +65,28 @@ export async function timeoutPendingPayments(
 
   for (const order of timedOutOrders) {
     assertTransition(OrderStatus.ORDER_SUBMITTED, OrderStatus.EXPIRED, 'SYSTEM', {});
-    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
-      tx.orders.updateMany({
-        where: { id: order.id, client_id: BigInt(clientId) },
-        data: { order_status: OrderStatus.EXPIRED, updated_at: new Date() },
-      }),
-    );
-    logger.info({ orderId: String(order.id), clientId }, 'Payment timed out, order expired by system');
+    assertTransition(OrderStatus.EXPIRED, OrderStatus.CLOSED, 'SYSTEM', {});
+    await withTenant(clientId, 'ADMIN_RUTA', async (tx) => {
+      const now = new Date();
+      const expired = await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.ORDER_SUBMITTED },
+        data: { order_status: OrderStatus.EXPIRED, updated_at: now },
+      });
+
+      if (expired.count === 0) return;
+
+      await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.EXPIRED },
+        data: {
+          order_status: OrderStatus.CLOSED,
+          closure_reason: 'PAYMENT_TIMEOUT',
+          refund_status: 'REFUND_NOT_REQUIRED',
+          closed_at: now,
+          updated_at: now,
+        },
+      });
+    });
+    logger.info({ orderId: String(order.id), clientId }, 'Payment timed out, order expired and closed by system');
   }
 }
 
