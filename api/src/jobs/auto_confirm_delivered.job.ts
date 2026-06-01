@@ -52,12 +52,29 @@ export async function autoConfirmDeliveredOrders(clientId: number, hours: number
 
   for (const order of orders) {
     assertTransition(OrderStatus.DELIVERED, OrderStatus.CONFIRMED_BY_SYSTEM, 'SYSTEM', {});
-    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
-      tx.orders.updateMany({
-        where: { id: order.id, client_id: BigInt(clientId) },
-        data: { order_status: OrderStatus.CONFIRMED_BY_SYSTEM },
-      })
-    );
-    logger.info({ orderId: String(order.id), clientId }, 'Order auto-confirmed by system');
+    assertTransition(OrderStatus.CONFIRMED_BY_SYSTEM, OrderStatus.COMPLETED_SUCCESSFULLY, 'SYSTEM', {});
+    assertTransition(OrderStatus.COMPLETED_SUCCESSFULLY, OrderStatus.CLOSED, 'SYSTEM', {});
+    await withTenant(clientId, 'ADMIN_RUTA', async (tx) => {
+      const now = new Date();
+      const confirmed = await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.DELIVERED },
+        data: { order_status: OrderStatus.CONFIRMED_BY_SYSTEM, updated_at: now },
+      });
+      if (confirmed.count === 0) return;
+      await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.CONFIRMED_BY_SYSTEM },
+        data: { order_status: OrderStatus.COMPLETED_SUCCESSFULLY, updated_at: now },
+      });
+      await tx.orders.updateMany({
+        where: { id: order.id, client_id: BigInt(clientId), order_status: OrderStatus.COMPLETED_SUCCESSFULLY },
+        data: {
+          order_status: OrderStatus.CLOSED,
+          closure_reason: 'COMPLETED_SUCCESSFULLY',
+          closed_at: now,
+          updated_at: now,
+        },
+      });
+    });
+    logger.info({ orderId: String(order.id), clientId }, 'Order auto-confirmed and closed by system');
   }
 }

@@ -14,6 +14,7 @@ interface RequestContext {
 interface LoginResult {
   accessToken: string;
   refreshToken: string;
+  expiresInSeconds: number;
   user: {
     id: number;
     client_id: number;
@@ -96,13 +97,22 @@ async function buildLoginResult(
   return {
     accessToken,
     refreshToken: raw,
+    expiresInSeconds: jwtMinutes * 60,
     user: { id: uid, client_id: cid, user_type: userType, email },
   };
 }
 
 export const authService = {
   async register(
-    input: { email: string; password: string; full_name?: string; client_slug: string },
+    input: {
+      email: string;
+      password: string;
+      full_name?: string;
+      phone?: string;
+      document_type?: string;
+      document_number?: string;
+      client_slug: string;
+    },
     ctx: RequestContext
   ): Promise<LoginResult> {
     const client = await withTenantReadOnly(0, 'ADMIN_RUTA', (tx) =>
@@ -134,6 +144,9 @@ export const authService = {
           email: input.email,
           password_hash: passwordHash,
           full_name: input.full_name,
+          phone: input.phone,
+          document_type: input.document_type,
+          document_number: input.document_number,
           status: 'ACTIVE',
         },
       });

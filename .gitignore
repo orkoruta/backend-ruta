@@ -1,3 +1,6 @@
+# External AI tool manifests (must not be committed)
+CODEBUFF.md
+
 # Environment
 .env
 .env.local

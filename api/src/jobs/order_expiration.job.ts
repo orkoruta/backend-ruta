@@ -8,6 +8,37 @@ import { logger } from '../middleware/logger.js';
 export const ORDER_EXPIRATION_JOB = 'order_expiration';
 const CRON = '*/5 * * * *';
 
+async function expireAndCloseOrder(
+  clientId: number,
+  orderId: bigint,
+  fromStatus: OrderStatus,
+  closureReason: string,
+): Promise<void> {
+  assertTransition(fromStatus, OrderStatus.EXPIRED, 'SYSTEM', {});
+  assertTransition(OrderStatus.EXPIRED, OrderStatus.CLOSED, 'SYSTEM', {});
+
+  await withTenant(clientId, 'ADMIN_RUTA', async (tx) => {
+    const now = new Date();
+    const expired = await tx.orders.updateMany({
+      where: { id: orderId, client_id: BigInt(clientId), order_status: fromStatus },
+      data: { order_status: OrderStatus.EXPIRED, updated_at: now },
+    });
+
+    if (expired.count === 0) return;
+
+    await tx.orders.updateMany({
+      where: { id: orderId, client_id: BigInt(clientId), order_status: OrderStatus.EXPIRED },
+      data: {
+        order_status: OrderStatus.CLOSED,
+        closure_reason: closureReason,
+        refund_status: 'REFUND_NOT_REQUIRED',
+        closed_at: now,
+        updated_at: now,
+      },
+    });
+  });
+}
+
 export async function registerOrderExpirationJob(boss: PgBoss): Promise<void> {
   await boss.createQueue(ORDER_EXPIRATION_JOB);
   await boss.schedule(ORDER_EXPIRATION_JOB, CRON);
@@ -58,14 +89,8 @@ export async function expireDraftOrders(clientId: number, draftMinutes: number):
   logger.info({ clientId, count: expiredOrders.length }, 'DRAFT orders ready to expire');
 
   for (const order of expiredOrders) {
-    assertTransition(OrderStatus.DRAFT, OrderStatus.EXPIRED, 'SYSTEM', {});
-    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
-      tx.orders.updateMany({
-        where: { id: order.id, client_id: BigInt(clientId) },
-        data: { order_status: OrderStatus.EXPIRED, updated_at: new Date() },
-      }),
-    );
-    logger.info({ orderId: String(order.id), clientId }, 'DRAFT order expired by system');
+    await expireAndCloseOrder(clientId, order.id, OrderStatus.DRAFT, 'EXPIRED');
+    logger.info({ orderId: String(order.id), clientId }, 'DRAFT order expired and closed by system');
   }
 }
 
@@ -92,14 +117,8 @@ export async function expirePendingConfirmOrders(
   logger.info({ clientId, count: expiredOrders.length }, 'PENDING_CONFIRM orders ready to expire');
 
   for (const order of expiredOrders) {
-    assertTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.EXPIRED, 'SYSTEM', {});
-    await withTenant(clientId, 'ADMIN_RUTA', (tx) =>
-      tx.orders.updateMany({
-        where: { id: order.id, client_id: BigInt(clientId) },
-        data: { order_status: OrderStatus.EXPIRED, updated_at: new Date() },
-      }),
-    );
-    logger.info({ orderId: String(order.id), clientId }, 'PENDING_CONFIRM order expired by system');
+    await expireAndCloseOrder(clientId, order.id, OrderStatus.PENDING_CONFIRM, 'EXPIRED');
+    logger.info({ orderId: String(order.id), clientId }, 'PENDING_CONFIRM order expired and closed by system');
   }
 }
 
