@@ -1,6 +1,9 @@
 # External AI tool manifests (must not be committed)
 CODEBUFF.md
 
+# Claude Code internal directory
+.claude/
+
 # Environment
 .env
 .env.local
