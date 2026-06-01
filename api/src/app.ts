@@ -2,6 +2,7 @@ import express, { type Express } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { healthzRouter } from './routes/healthz.js';
+import { openApiRouter } from './routes/openapi.js';
 import { rutaAdminClientsRouter } from './routes/ruta_admin_clients.js';
 import { authRouter } from './routes/auth.js';
 import { adminCategoriesRouter } from './routes/admin_categories.js';
@@ -52,6 +53,7 @@ app.use(loggerMiddleware);
 
 // Public routes (no auth required)
 app.use('/healthz', healthzRouter);
+app.use('/', openApiRouter);
 app.use('/auth', authRouter);
 app.use('/public/clients/:slug', publicCatalogRouter);
 
