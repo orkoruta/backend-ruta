@@ -12,7 +12,7 @@
 
 import type { PgBoss, Job } from 'pg-boss';
 import { withTenant } from '@orkoruta/db';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 import { SEND_WEBHOOK_JOB, type SendWebhookJobData } from '../services/webhooks_outgoing.service.js';
 
 const HTTP_TIMEOUT_MS = 10_000;

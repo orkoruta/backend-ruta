@@ -14,7 +14,7 @@ import { publicCatalogRouter } from './routes/public_catalog.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { webhooksRouter } from './routes/webhooks.js'; // 2.BACK-3
 import { buyerPaymentRouter } from './routes/buyer_payment.js'; // 2.BACK-3
-import { loggerMiddleware, logger } from './middleware/logger.js';
+import { loggerMiddleware, logger } from './lib/logger.js';
 import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
 import { HttpError, sendHttpError } from './lib/http_error.js';

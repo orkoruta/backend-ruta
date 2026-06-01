@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import { env } from '../config/env.js';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 import { registerOrderExpirationJob } from './order_expiration.job.js';
 import { registerPaymentTimeoutJob } from './payment_timeout.job.js';
 import { registerCleanupIdempotencyJob } from './cleanup_idempotency.job.js';

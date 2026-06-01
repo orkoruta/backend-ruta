@@ -1,6 +1,6 @@
 import type { PgBoss } from 'pg-boss';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 
 export const CLEANUP_IDEMPOTENCY_JOB = 'cleanup_idempotency';
 // Hourly: idempotency_keys carry their expires_at at creation, so hourly cleanup suffices.

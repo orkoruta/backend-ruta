@@ -1,5 +1,5 @@
 import { validateEnv } from './config/env.js';
-import { logger } from './middleware/logger.js';
+import { logger } from './lib/logger.js';
 import { initMaintenanceJobs } from './jobs/maintenance_boss.js';
 
 validateEnv();

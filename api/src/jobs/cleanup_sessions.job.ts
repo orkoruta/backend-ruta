@@ -1,7 +1,7 @@
 import type { PgBoss } from 'pg-boss';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { getParameterInt } from '../lib/parameter.js';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 
 export const CLEANUP_SESSIONS_JOB = 'cleanup_sessions';
 // Daily at 03:00 UTC — low-traffic window

@@ -3,7 +3,7 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { OrderStatus } from '@orkoruta/shared';
 import { assertTransition } from '../services/orders/state_machine.js';
 import { getParameterInt } from '../lib/parameter.js';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 
 export const PAYMENT_TIMEOUT_JOB = 'payment_timeout';
 const CRON = '*/2 * * * *';

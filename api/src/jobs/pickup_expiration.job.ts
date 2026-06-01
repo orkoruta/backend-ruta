@@ -11,7 +11,7 @@
 import type { PgBoss } from 'pg-boss';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { OrderStatus } from '@orkoruta/shared';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 import { assertTransition } from '../services/orders/state_machine.js';
 import { resolveParamInt } from './order_expiration.job.js';
 

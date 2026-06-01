@@ -57,5 +57,7 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: LOGTAIL_TOKEN
+        sync: false
       - key: NPM_TOKEN
         sync: false

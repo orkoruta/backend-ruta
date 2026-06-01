@@ -11,7 +11,7 @@
 import type { PgBoss } from 'pg-boss';
 import { withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../lib/http_error.js';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 
 export const SEND_WEBHOOK_JOB = 'send_webhook';
 

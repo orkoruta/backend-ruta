@@ -3,7 +3,7 @@ import { OrderStatus } from '@orkoruta/shared';
 import { HttpError } from '../../lib/http_error.js';
 import { getParameterInt } from '../../lib/parameter.js';
 import { assertTransition } from './state_machine.js';
-import { logger } from '../../middleware/logger.js';
+import { logger } from '../../lib/logger.js';
 
 export type ValidationOutcome = 'VALIDATION_APPROVED' | 'MANUAL_REVIEW';
 

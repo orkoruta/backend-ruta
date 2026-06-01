@@ -3,7 +3,7 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { OrderStatus, PaymentStatus } from '@orkoruta/shared';
 import { assertTransition } from '../services/orders/state_machine.js';
 import { processOrderValidation } from '../services/orders/validation.service.js';
-import { logger } from '../middleware/logger.js';
+import { logger } from '../lib/logger.js';
 
 export const VALIDATE_ORDER_JOB = 'validate_order';
 const CRON = '*/1 * * * *';
