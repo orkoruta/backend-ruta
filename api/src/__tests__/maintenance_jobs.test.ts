@@ -73,6 +73,11 @@ import {
   expireReadyForPickupOrders,
 } from '../jobs/pickup_expiration.job.js';
 
+import {
+  processAtPickupExpiration,
+  expireAtPickupPointOrders,
+} from '../jobs/at_pickup_expiration.job.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // daysAgo helper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -481,7 +486,7 @@ describe('processPickupExpiration', () => {
   beforeEach(() => {
     mockFindMany.mockReset();
     mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
-    mockGetParameterInt.mockReset().mockResolvedValue(1440);
+    mockGetParameterInt.mockReset().mockResolvedValue(24); // hours now
   });
 
   it('skips when no active FULL clients', async () => {
@@ -495,9 +500,142 @@ describe('processPickupExpiration', () => {
     mockFindMany
       .mockResolvedValueOnce([{ id: BigInt(1) }, { id: BigInt(2) }])
       .mockResolvedValue([]);
-    mockGetParameterInt.mockResolvedValue(1440);
+    mockGetParameterInt.mockResolvedValue(24);
     await processPickupExpiration();
     // 1 clients call + 2 clients × 1 orders query = 3 total findMany calls
     expect(mockFindMany).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads order.pickup_expiration_hours parameter', async () => {
+    mockFindMany
+      .mockResolvedValueOnce([{ id: BigInt(1) }])
+      .mockResolvedValue([]);
+    mockGetParameterInt.mockResolvedValue(48);
+    await processPickupExpiration();
+    // resolveParamInt calls getParameterInt(clientId, key, 0) first
+    expect(mockGetParameterInt).toHaveBeenCalledWith(
+      expect.any(Number),
+      'order.pickup_expiration_hours',
+      expect.any(Number),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// expireAtPickupPointOrders
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('expireAtPickupPointOrders', () => {
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+  });
+
+  it('does nothing when no AT_PICKUP_POINT orders past threshold', async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+    await expireAtPickupPointOrders(1, 2880);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('transitions AT_PICKUP_POINT → PICKUP_EXPIRED for each stale order', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: BigInt(10), payment_status: 'PENDING_COLLECTION' },
+    ]);
+    await expireAtPickupPointOrders(1, 2880);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ order_status: 'PICKUP_EXPIRED' }) }),
+    );
+  });
+
+  it('completes full chain PICKUP_EXPIRED → CLOSED when update succeeds', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: BigInt(10), payment_status: 'PENDING_COLLECTION' }]);
+    mockUpdateMany
+      .mockResolvedValueOnce({ count: 1 }) // AT_PICKUP_POINT → PICKUP_EXPIRED
+      .mockResolvedValueOnce({ count: 1 }); // PICKUP_EXPIRED → CLOSED
+    await expireAtPickupPointOrders(1, 2880);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(mockUpdateMany).mock.calls;
+    expect((calls[0] as unknown[])[0]).toMatchObject({
+      data: expect.objectContaining({ order_status: 'PICKUP_EXPIRED' }),
+    });
+    expect((calls[1] as unknown[])[0]).toMatchObject({
+      data: expect.objectContaining({
+        order_status: 'CLOSED',
+        closure_reason: 'PICKUP_EXPIRED',
+        refund_status: 'REFUND_NOT_REQUIRED',
+      }),
+    });
+  });
+
+  it('marks refund_status = REFUND_PENDING when order was PAID', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: BigInt(20), payment_status: 'PAID' }]);
+    mockUpdateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    await expireAtPickupPointOrders(1, 2880);
+    const calls = vi.mocked(mockUpdateMany).mock.calls;
+    expect((calls[1] as unknown[])[0]).toMatchObject({
+      data: expect.objectContaining({ refund_status: 'REFUND_PENDING' }),
+    });
+  });
+
+  it('skips CLOSED update if race condition clears the row', async () => {
+    mockFindMany.mockResolvedValueOnce([{ id: BigInt(30), payment_status: 'PAID' }]);
+    mockUpdateMany.mockResolvedValueOnce({ count: 0 }); // race: order already moved
+    await expireAtPickupPointOrders(1, 2880);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('processes multiple orders independently', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      { id: BigInt(1), payment_status: 'PENDING_COLLECTION' },
+      { id: BigInt(2), payment_status: 'PAID' },
+    ]);
+    await expireAtPickupPointOrders(1, 2880);
+    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// processAtPickupExpiration
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('processAtPickupExpiration', () => {
+  beforeEach(() => {
+    mockFindMany.mockReset();
+    mockUpdateMany.mockReset().mockResolvedValue({ count: 0 });
+    mockGetParameterInt.mockReset().mockResolvedValue(48);
+  });
+
+  it('skips when no active FULL clients', async () => {
+    mockFindMany.mockResolvedValue([]);
+    await processAtPickupExpiration();
+    expect(mockGetParameterInt).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('processes each active FULL client', async () => {
+    mockFindMany
+      .mockResolvedValueOnce([{ id: BigInt(1) }, { id: BigInt(2) }])
+      .mockResolvedValue([]);
+    mockGetParameterInt.mockResolvedValue(48);
+    await processAtPickupExpiration();
+    // 1 clients call + 2 clients × 1 orders query = 3 total findMany calls
+    expect(mockFindMany).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads pickup.expiration_hours parameter', async () => {
+    mockFindMany
+      .mockResolvedValueOnce([{ id: BigInt(1) }])
+      .mockResolvedValue([]);
+    mockGetParameterInt.mockResolvedValue(48);
+    await processAtPickupExpiration();
+    // resolveParamInt calls getParameterInt(clientId, key, 0) first
+    expect(mockGetParameterInt).toHaveBeenCalledWith(
+      expect.any(Number),
+      'pickup.expiration_hours',
+      expect.any(Number),
+    );
   });
 });

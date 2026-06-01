@@ -8,6 +8,7 @@ import { registerCleanupSessionsJob } from './cleanup_sessions.job.js';
 import { registerValidateOrderJob } from './validate_order.job.js'; // 2.BACK-2
 import { registerAutoConfirmDeliveredJob } from './auto_confirm_delivered.job.js'; // 3.BACK-6
 import { registerPickupExpirationJob } from './pickup_expiration.job.js'; // 4.BACK-1
+import { registerAtPickupExpirationJob } from './at_pickup_expiration.job.js'; // 4.BACK-1
 import { registerWebhookSenderJob } from './webhook_sender.job.js'; // 6.INFRA-3
 
 let bossInstance: PgBoss | null = null;
@@ -30,6 +31,7 @@ export async function initMaintenanceJobs(): Promise<void> {
     await registerValidateOrderJob(boss); // 2.BACK-2
     await registerAutoConfirmDeliveredJob(boss); // 3.BACK-6
     await registerPickupExpirationJob(boss); // 4.BACK-1
+    await registerAtPickupExpirationJob(boss); // 4.BACK-1
     await registerWebhookSenderJob(boss); // 6.INFRA-3
 
     logger.info('Maintenance jobs initialized');

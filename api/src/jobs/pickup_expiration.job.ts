@@ -4,7 +4,7 @@
  * Job que expira pedidos READY_FOR_PICKUP que superan el plazo configurado.
  * Se ejecuta cada 5 minutos. Solo aplica a Clientes FULL activos.
  *
- * Parámetro: `order.pickup_expiration_minutes` (fallback: 1440 min = 24h).
+ * Parámetro: `order.pickup_expiration_hours` (fallback: 24h).
  * Transición: READY_FOR_PICKUP → EXPIRED → CLOSED (actor: SYSTEM, atómica).
  */
 
@@ -18,8 +18,8 @@ import { resolveParamInt } from './order_expiration.job.js';
 export const PICKUP_EXPIRATION_JOB = 'pickup_expiration';
 const CRON = '*/5 * * * *';
 
-// Default fallback (24h) si no hay parámetro configurado en ningún nivel
-const PICKUP_EXPIRATION_DEFAULT_MINUTES = 1440;
+// Default fallback: 24h si no hay parámetro configurado en ningún nivel
+const PICKUP_EXPIRATION_DEFAULT_HOURS = 24;
 
 export async function registerPickupExpirationJob(boss: PgBoss): Promise<void> {
   await boss.createQueue(PICKUP_EXPIRATION_JOB);
@@ -41,12 +41,12 @@ export async function processPickupExpiration(): Promise<void> {
 
   for (const client of clients) {
     const clientId = Number(client.id);
-    const expirationMinutes = await resolveParamInt(
+    const expirationHours = await resolveParamInt(
       clientId,
-      'order.pickup_expiration_minutes',
-      PICKUP_EXPIRATION_DEFAULT_MINUTES,
+      'order.pickup_expiration_hours',
+      PICKUP_EXPIRATION_DEFAULT_HOURS,
     );
-    await expireReadyForPickupOrders(clientId, expirationMinutes);
+    await expireReadyForPickupOrders(clientId, expirationHours * 60);
   }
 }
 
