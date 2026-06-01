@@ -45,6 +45,46 @@ la tarea lo exija de forma clara y quede registrado en memoria.
 
 ---
 
+## 0.2 Memoria y registro de avance (obligatorio)
+
+El agente debe registrar el progreso **proactivamente**, sin esperar
+que el desarrollador lo pida explícitamente.
+
+**Qué registrar sin que te lo pidan:**
+- **Tarea completada** → marcar `[x]` en el plan de fase/sprint y
+  actualizar el archivo de estado en el directorio de memoria del proyecto.
+- **Decisión técnica no obvia** → anotarla en el archivo de proyecto
+  relevante de memoria.
+- **Feedback o corrección del desarrollador** → guardar como feedback
+  de memoria en el mismo turno en que se recibe.
+- **Sprint o fase cerrada** → actualizar el archivo de estado y el
+  índice `MEMORY.md`.
+- **Instrucción del tipo "a partir de ahora", "siempre", "nunca"** →
+  guardar como feedback de memoria inmediatamente, no solo aplicarla.
+- **Cambio de estrategia o plan** → reflejar en el archivo de plan y en
+  `MEMORY.md` en el mismo turno.
+
+Esta regla aplica para **cualquier desarrollador o agente** que trabaje
+en este repositorio, independientemente del entorno o la herramienta de IA.
+
+---
+
+## 0.3 Fase 3 — Estrategia local-first (vigente hasta deploy final)
+
+**PROHIBIDO durante el desarrollo de Fase 3:**
+- Push a GitHub (en ningún repo del proyecto).
+- Abrir PRs o mergear ramas.
+- Publicar `@orkoruta/shared` u otros paquetes a GitHub Packages.
+- Desplegar en Render.
+
+Todo el desarrollo de Fase 3 ocurre en **ramas locales**. El deploy
+a GitHub y a producción se ejecuta **una sola vez**, cuando todos los
+bloques estén completos y la Validación Pre-Deploy Final esté aprobada.
+Ver `docs-ruta/plan_fase3.md` para el detalle de la estrategia y el
+checklist de validación.
+
+---
+
 ## 1. Qué es RUTA
 
 Plataforma SaaS multi-tenant para administrar operaciones comerciales
