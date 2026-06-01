@@ -20,7 +20,10 @@ export async function initMaintenanceJobs(): Promise<void> {
   initPromise = (async () => {
     if (env.NODE_ENV === 'test') return;
 
-    const boss = new PgBoss(env.DATABASE_URL);
+    const boss = new PgBoss({
+      connectionString: env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
     await boss.start();
     bossInstance = boss;
 
