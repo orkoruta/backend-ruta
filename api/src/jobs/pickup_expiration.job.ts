@@ -63,7 +63,7 @@ export async function expireReadyForPickupOrders(
         order_status: OrderStatus.READY_FOR_PICKUP,
         updated_at: { lt: threshold },
       },
-      select: { id: true },
+      select: { id: true, payment_status: true },
     }),
   );
 
@@ -74,6 +74,10 @@ export async function expireReadyForPickupOrders(
   for (const order of orders) {
     assertTransition(OrderStatus.READY_FOR_PICKUP, OrderStatus.EXPIRED, 'SYSTEM', {});
     assertTransition(OrderStatus.EXPIRED, OrderStatus.CLOSED, 'SYSTEM', {});
+
+    const refundStatus =
+      order.payment_status === 'PAID' ? 'REFUND_PENDING' : 'REFUND_NOT_REQUIRED';
+
     await withTenant(clientId, 'ADMIN_RUTA', async (tx) => {
       const now = new Date();
       const expired = await tx.orders.updateMany({
@@ -86,14 +90,14 @@ export async function expireReadyForPickupOrders(
         data: {
           order_status: OrderStatus.CLOSED,
           closure_reason: 'PICKUP_EXPIRED',
-          refund_status: 'REFUND_NOT_REQUIRED',
+          refund_status: refundStatus,
           closed_at: now,
           updated_at: now,
         },
       });
     });
     logger.info(
-      { orderId: String(order.id), clientId },
+      { orderId: String(order.id), clientId, refundStatus },
       'READY_FOR_PICKUP order expired and closed by system',
     );
   }

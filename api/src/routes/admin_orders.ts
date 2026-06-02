@@ -7,6 +7,7 @@ import { requireAdminClient } from '../middleware/auth.js';
 import { HttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { assertTransition } from '../services/orders/state_machine.js';
+import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
 
@@ -283,7 +284,7 @@ export const adminOrdersService = {
       }
 
       assertTransition(cancelStatus, OrderStatus.CLOSED, 'SYSTEM');
-      return tx.orders.update({
+      const closedOrder = await tx.orders.update({
         where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
         data: {
           order_status: OrderStatus.CLOSED,
@@ -293,6 +294,11 @@ export const adminOrdersService = {
         },
         include: orderInclude,
       });
+
+      // Si el pedido estaba pagado, marcar refund_status = REFUND_PENDING
+      await setRefundPendingIfPaid(tx, BigInt(orderId), BigInt(clientId), closedOrder.payment_status);
+
+      return closedOrder;
     });
 
     return serializeOrder(order);

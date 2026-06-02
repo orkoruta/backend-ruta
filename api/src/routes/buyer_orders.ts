@@ -7,6 +7,7 @@ import {
   requestCancelSchema,
   orderListQuerySchema,
 } from '../services/orders/orders.service.js';
+import { refundsService } from '../services/refunds.service.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { toApiError } from '../lib/errors.js';
 
@@ -125,6 +126,28 @@ export function createBuyerOrdersRouter(service: OrdersService = ordersService):
       }
       const order = await service.confirmReceipt(req.user!.client_id, orderId, req.user!);
       res.json(order);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /buyer/orders/:id/refund — Estado del reembolso del pedido (Fase 3, Bloque 3.1)
+  router.get('/:id/refund', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const orderId = parseInt(req.params.id, 10);
+      if (isNaN(orderId) || orderId <= 0) {
+        res.status(400).json(toApiError('VALIDATION_ERROR', 'ID de pedido inválido'));
+        return;
+      }
+      // Verificar que el pedido pertenece al comprador
+      const order = await service.getById(req.user!.client_id, orderId, req.user!);
+      if (!order) {
+        res.status(404).json(toApiError('RESOURCE_NOT_FOUND', 'Pedido no encontrado'));
+        return;
+      }
+      // Retornar el refund_status del pedido y el detalle del reembolso si existe
+      const result = await refundsService.getRefundForOrder(req.user!.client_id, orderId);
+      res.json(result);
     } catch (error) {
       next(error);
     }
