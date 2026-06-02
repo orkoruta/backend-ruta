@@ -33,6 +33,8 @@ import { createRutaAdminMetricsRouter } from './routes/ruta_admin_metrics.js'; /
 import { createControlViewRouter } from './routes/ruta_admin_control_view.js'; // 5.BACK-1
 import { createAdminWebhooksRouter } from './routes/admin_webhooks.js'; // 6.INFRA-3
 import { adminRefundsRouter, adminOrderRefundRouter } from './routes/admin_refunds.js'; // F3.B1-BACK-1
+import { adminReturnsRouter } from './routes/admin_returns.js'; // F3.B2-BACK-1
+import { buyerReturnsRouter } from './routes/buyer_returns.js'; // F3.B2-BACK-1
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -86,6 +88,8 @@ app.use('/ruta-admin/control-view', createControlViewRouter()); // 5.BACK-1
 app.use('/admin', createAdminWebhooksRouter()); // 6.INFRA-3
 app.use('/admin/refunds', adminRefundsRouter); // F3.B1-BACK-1
 app.use('/admin/orders', adminOrderRefundRouter); // F3.B1-BACK-1 (POST /:id/initiate-refund)
+app.use('/admin/returns', adminReturnsRouter); // F3.B2-BACK-1
+app.use('/buyer/orders', buyerReturnsRouter); // F3.B2-BACK-1 (POST /:id/request-return, GET /:id/return)
 
 // 404 handler
 app.use((_req, res) => {
