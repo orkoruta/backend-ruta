@@ -35,6 +35,7 @@ import { createAdminWebhooksRouter } from './routes/admin_webhooks.js'; // 6.INF
 import { adminRefundsRouter, adminOrderRefundRouter } from './routes/admin_refunds.js'; // F3.B1-BACK-1
 import { buyerRecurrenceRouter, buyerOrderRecurrenceRouter } from './routes/buyer_recurrence.js'; // F3.B4-BACK-1
 import { adminRecurrenceRouter } from './routes/admin_recurrence.js'; // F3.B4-BACK-1
+import { adminCorporateOrdersRouter } from './routes/admin_corporate_orders.js'; // F3.B5-BACK-1
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -91,6 +92,7 @@ app.use('/admin/orders', adminOrderRefundRouter); // F3.B1-BACK-1 (POST /:id/ini
 app.use('/buyer/recurrence', buyerRecurrenceRouter); // F3.B4-BACK-1
 app.use('/buyer/orders', buyerOrderRecurrenceRouter); // F3.B4-BACK-1 (POST /:id/mark-recurring)
 app.use('/admin/recurrence', adminRecurrenceRouter); // F3.B4-BACK-1
+app.use('/admin/orders', adminCorporateOrdersRouter); // F3.B5-BACK-1
 
 // 404 handler
 app.use((_req, res) => {
