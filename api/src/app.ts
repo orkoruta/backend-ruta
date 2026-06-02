@@ -35,6 +35,8 @@ import { createAdminWebhooksRouter } from './routes/admin_webhooks.js'; // 6.INF
 import { adminRefundsRouter, adminOrderRefundRouter } from './routes/admin_refunds.js'; // F3.B1-BACK-1
 import { adminReturnsRouter } from './routes/admin_returns.js'; // F3.B2-BACK-1
 import { buyerReturnsRouter } from './routes/buyer_returns.js'; // F3.B2-BACK-1
+import { adminDisputesRouter } from './routes/admin_disputes.js'; // F3.B3-BACK-1
+import { buyerDisputesRouter } from './routes/buyer_disputes.js'; // F3.B3-BACK-1
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -90,6 +92,8 @@ app.use('/admin/refunds', adminRefundsRouter); // F3.B1-BACK-1
 app.use('/admin/orders', adminOrderRefundRouter); // F3.B1-BACK-1 (POST /:id/initiate-refund)
 app.use('/admin/returns', adminReturnsRouter); // F3.B2-BACK-1
 app.use('/buyer/orders', buyerReturnsRouter); // F3.B2-BACK-1 (POST /:id/request-return, GET /:id/return)
+app.use('/admin/disputes', adminDisputesRouter); // F3.B3-BACK-1
+app.use('/buyer/orders', buyerDisputesRouter); // F3.B3-BACK-1 (POST /:id/dispute, GET /:id/dispute)
 
 // 404 handler
 app.use((_req, res) => {
