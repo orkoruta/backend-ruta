@@ -521,8 +521,8 @@ type AdminOrdersService = typeof adminOrdersService;
 export function createAdminOrdersRouter(service: AdminOrdersService = adminOrdersService): Router {
   const router = Router();
 
-  // GET endpoints do not require idempotency key
-  router.use(requireIdempotencyKey);
+  // Idempotency is applied per-route (not globally) to avoid double-application
+  // when secondary routers are mounted at the same /admin/orders prefix.
 
   // GET /admin/orders — requires at least admin or operator role
   router.get('/', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
@@ -545,7 +545,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/accept — ADMIN_CLIENT + ADMIN_RUTA (seller acceptance)
-  router.post('/:id/accept', requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/accept', requireIdempotencyKey, requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.accept(req.user!.client_id, id, req.user!));
@@ -555,7 +555,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/reject — ADMIN_CLIENT + ADMIN_RUTA (seller rejection)
-  router.post('/:id/reject', requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/reject', requireIdempotencyKey, requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       rejectOrderSchema.parse(req.body); // validate body shape even if optional
@@ -566,7 +566,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/mark-preparing — ADMIN_CLIENT + OPERATOR_CLIENT + ADMIN_RUTA
-  router.post('/:id/mark-preparing', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/mark-preparing', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.markPreparing(req.user!.client_id, id, req.user!));
@@ -576,7 +576,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/mark-ready — ADMIN_CLIENT + OPERATOR_CLIENT + ADMIN_RUTA
-  router.post('/:id/mark-ready', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/mark-ready', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       const { delivery_carrier_type } = markReadySchema.parse(req.body ?? {});
@@ -587,7 +587,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/approve-cancel-request
-  router.post('/:id/approve-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/approve-cancel-request', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.approveCancelRequest(req.user!.client_id, id, req.user!));
@@ -597,7 +597,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/reject-cancel-request
-  router.post('/:id/reject-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/reject-cancel-request', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       const { reason } = rejectCancelRequestBodySchema.parse(req.body);
@@ -608,7 +608,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/return-to-origin
-  router.post('/:id/return-to-origin', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/return-to-origin', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.returnToOrigin(req.user!.client_id, id, req.user!));
@@ -618,7 +618,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/return-to-origin-received
-  router.post('/:id/return-to-origin-received', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/return-to-origin-received', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.returnToOriginReceived(req.user!.client_id, id, req.user!));

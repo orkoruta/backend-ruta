@@ -183,13 +183,11 @@ export const ordersService = {
         const lineSubtotal = unitPrice * item.quantity;
         subtotal += lineSubtotal;
         return {
-          product_id: BigInt(item.product_id),
           product_name: product.name,
           sku: product.sku ?? null,
           quantity: item.quantity,
           unit_price: unitPrice,
           subtotal: lineSubtotal,
-          client_id: BigInt(clientId),
         };
       });
 
@@ -556,6 +554,9 @@ export async function createApiClientOrder(
   // Validar input (ya parseado, pero re-valida por seguridad)
   const validated = createApiOrderSchema.parse(input);
 
+  // Mapear payment_method del schema API a valores de BD
+  const dbPaymentMethod = validated.payment_method === 'PREPAID_EXTERNAL' ? 'EXTERNAL_PREPAID' : 'CASH_ON_DELIVERY';
+
   // Determinar payment_status según payment_method
   const paymentStatus =
     validated.payment_method === 'PREPAID_EXTERNAL'
@@ -574,8 +575,6 @@ export async function createApiClientOrder(
       quantity: item.quantity,
       unit_price: unitPrice,
       subtotal: lineSubtotal,
-      // product_id es null: items de API no referencian catálogo
-      product_id: null,
     };
   });
 
@@ -587,12 +586,12 @@ export async function createApiClientOrder(
       data: {
         client_id: clientId,
         buyer_id: createdByUserId, // FK sentinel: usuario admin que creó la API key
-        order_origin: 'API',
+        order_origin: 'API_LOGISTICS',
         order_status: validated.initial_state,
         payment_status: paymentStatus,
         refund_status: 'REFUND_NOT_REQUIRED',
         delivery_type: validated.delivery_type,
-        payment_method: validated.payment_method,
+        payment_method: dbPaymentMethod,
         buyer_type: 'CORPORATE',
         subtotal,
         total: subtotal,
@@ -608,10 +607,7 @@ export async function createApiClientOrder(
         delivery_address_longitude: addr?.coordinates?.lng ?? null,
         // external_reference y customer_info van en metadata de order_state_history
         order_items: {
-          create: items.map((i) => ({
-            ...i,
-            client_id: clientId,
-          })),
+          create: items,
         },
       },
       include: orderInclude,

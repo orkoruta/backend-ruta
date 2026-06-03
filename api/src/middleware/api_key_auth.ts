@@ -61,6 +61,7 @@ export function apiKeyAuth(requiredScope: ApiKeyScope) {
       revoked_at: Date | null;
       expires_at: Date | null;
       last_used_at: Date | null;
+      created_by_user_id: bigint | null;
     } | null;
 
     try {
@@ -75,6 +76,7 @@ export function apiKeyAuth(requiredScope: ApiKeyScope) {
             revoked_at: true,
             expires_at: true,
             last_used_at: true,
+            created_by_user_id: true,
           },
         })
       );
@@ -123,7 +125,7 @@ export function apiKeyAuth(requiredScope: ApiKeyScope) {
 
     // Poblar req.user
     req.user = {
-      id: 0, // API clients no tienen user_id; usar 0 como sentinel
+      id: apiKey.created_by_user_id ? Number(apiKey.created_by_user_id) : 0,
       client_id: Number(apiKey.client_id),
       user_type: 'API_CLIENT',
       session_id: 0,

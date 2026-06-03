@@ -234,13 +234,11 @@ export const corporateOrdersService = {
         const lineSubtotal = unitPrice * item.quantity;
         subtotal += lineSubtotal;
         return {
-          product_id: BigInt(item.product_id),
           product_name: product.name,
           sku: product.sku ?? null,
           quantity: item.quantity,
           unit_price: unitPrice,
           subtotal: lineSubtotal,
-          client_id: BigInt(clientId),
         };
       });
 
