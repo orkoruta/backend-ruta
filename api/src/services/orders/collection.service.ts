@@ -14,6 +14,35 @@ import { OrderStatus, PaymentStatus, PaymentMethod } from '@orkoruta/shared';
 import { withTenant } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
+import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+function emitWebhook(
+  clientId: number,
+  orderId: number,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  const boss = getMaintenanceBoss();
+  if (!boss) return;
+
+  const payload = {
+    event_type: eventType,
+    client_id: clientId,
+    order_id: orderId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  setImmediate(() => {
+    processWebhookEvent(eventType, payload, clientId, boss).catch((err: unknown) => {
+      logger.warn({ err, clientId, orderId, eventType }, 'collection: error emitiendo webhook');
+    });
+  });
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -242,7 +271,7 @@ export const collectionService = {
         },
       });
 
-      return {
+      const collectionResult = {
         payment_id: Number(payment.id),
         order_id: orderId,
         payment_status: PaymentStatus.PAYMENT_COLLECTED,
@@ -252,6 +281,17 @@ export const collectionService = {
         evidence_url: validatedInput.evidence_url ?? null,
         collected_at: payment.collected_at?.toISOString() ?? now.toISOString(),
       };
+
+      // F2.BACK-6 — PAYMENT_COLLECTED webhook
+      emitWebhook(clientId, orderId, 'PAYMENT_COLLECTED', {
+        payment_status: PaymentStatus.PAYMENT_COLLECTED,
+        order_status: targetStatus,
+        payment_method: order.payment_method,
+        amount: validatedInput.amount,
+        currency: validatedInput.currency,
+      });
+
+      return collectionResult;
     });
   },
 
@@ -328,6 +368,13 @@ export const collectionService = {
           },
         });
 
+        // F2.BACK-6 — ORDER_RETURN_TO_ORIGIN webhook (electronic failed collection)
+        emitWebhook(clientId, orderId, 'ORDER_RETURN_TO_ORIGIN', {
+          order_status: OrderStatus.RETURN_TO_ORIGIN,
+          payment_status: PaymentStatus.PAYMENT_NOT_COLLECTED,
+          payment_method: order.payment_method,
+        });
+
         return {
           order_id: orderId,
           payment_status: PaymentStatus.PAYMENT_NOT_COLLECTED,
@@ -374,6 +421,13 @@ export const collectionService = {
             },
             result: 'SUCCESS',
           },
+        });
+
+        // F2.BACK-6 — ORDER_RETURN_TO_ORIGIN webhook (cash failed collection)
+        emitWebhook(clientId, orderId, 'ORDER_RETURN_TO_ORIGIN', {
+          order_status: OrderStatus.RETURN_TO_ORIGIN,
+          payment_status: PaymentStatus.PAYMENT_NOT_COLLECTED,
+          payment_method: order.payment_method,
         });
 
         return {

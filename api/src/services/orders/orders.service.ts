@@ -344,7 +344,31 @@ export const ordersService = {
     });
 
     void input; // reason se puede persistir en audit_events (responsabilidad futura)
-    return serializeOrder(order);
+
+    const serialized = serializeOrder(order);
+
+    // F2.BACK-6 — ORDER_CANCELLED webhook (cancelación por comprador)
+    const boss = getMaintenanceBoss();
+    if (boss) {
+      const webhookPayload = {
+        event_type: 'ORDER_CANCELLED',
+        client_id: clientId,
+        order_id: orderId,
+        timestamp: new Date().toISOString(),
+        data: {
+          order_status: OrderStatus.CLOSED,
+          closure_reason: 'CANCELLED_BY_CUSTOMER',
+          delivery_type: serialized.delivery_type,
+        },
+      };
+      setImmediate(() => {
+        processWebhookEvent('ORDER_CANCELLED', webhookPayload, clientId, boss).catch((err: unknown) => {
+          logger.warn({ err, clientId, orderId }, 'orders.service: error emitiendo ORDER_CANCELLED webhook');
+        });
+      });
+    }
+
+    return serialized;
   },
 
   async requestCancel(
@@ -492,6 +516,8 @@ export { createOrderSchema, confirmOrderSchema, cancelOrderSchema };
 
 import { createApiOrderSchema } from '@orkoruta/shared';
 import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
 export type CreateApiOrderInput = z.infer<typeof createApiOrderSchema>;
 
@@ -634,6 +660,28 @@ export async function createApiClientOrder(
       logger.warn({ err, clientId }, 'createApiClientOrder: error auditando ORDER_CREATED');
     });
   });
+
+  // F2.BACK-6 — ORDER_CREATED webhook (fire-and-forget)
+  const boss = getMaintenanceBoss();
+  if (boss) {
+    const webhookPayload = {
+      event_type: 'ORDER_CREATED',
+      client_id: Number(clientId),
+      order_id: Number(order.id),
+      timestamp: new Date().toISOString(),
+      data: {
+        order_status: validated.initial_state,
+        delivery_type: validated.delivery_type,
+        payment_method: validated.payment_method,
+        external_reference: validated.external_reference ?? null,
+      },
+    };
+    setImmediate(() => {
+      processWebhookEvent('ORDER_CREATED', webhookPayload, Number(clientId), boss).catch((err: unknown) => {
+        logger.warn({ err, clientId: String(clientId) }, 'createApiClientOrder: error emitiendo ORDER_CREATED webhook');
+      });
+    });
+  }
 
   logger.info({ clientId: String(clientId), orderId: String(order.id), initial_state: validated.initial_state }, 'Pedido API creado');
 

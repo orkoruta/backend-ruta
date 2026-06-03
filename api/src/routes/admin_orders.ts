@@ -10,6 +10,35 @@ import { assertTransition } from '../services/orders/state_machine.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
+import { logger } from '../lib/logger.js';
+import { processWebhookEvent } from '../services/webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../jobs/maintenance_boss.js';
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+function emitWebhook(
+  clientId: number,
+  orderId: number,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  const boss = getMaintenanceBoss();
+  if (!boss) return;
+
+  const payload = {
+    event_type: eventType,
+    client_id: clientId,
+    order_id: orderId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  setImmediate(() => {
+    processWebhookEvent(eventType, payload, clientId, boss).catch((err: unknown) => {
+      logger.warn({ err, clientId, orderId, eventType }, 'admin_orders: error emitiendo webhook');
+    });
+  });
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -378,6 +407,14 @@ export const adminOrdersService = {
         include: orderInclude,
       });
     });
+
+    // F2.BACK-6 — ORDER_READY_FOR_PICKUP webhook (solo para pedidos PICKUP)
+    if (order.delivery_type === 'PICKUP') {
+      emitWebhook(clientId, orderId, 'ORDER_READY_FOR_PICKUP', {
+        order_status: OrderStatus.READY_FOR_PICKUP,
+        delivery_type: order.delivery_type,
+      });
+    }
 
     return serializeOrder(order);
   },

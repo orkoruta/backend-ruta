@@ -10,6 +10,7 @@ import {
 import { refundsService } from '../services/refunds.service.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { toApiError } from '../lib/errors.js';
+// F2.BACK-5: assertClientIsFull no aplica a rutas BUYER — un BUYER solo existe en cliente FULL
 
 type OrdersService = typeof ordersService;
 
@@ -32,6 +33,7 @@ export function createBuyerOrdersRouter(service: OrdersService = ordersService):
   router.use(requireIdempotencyKey);
 
   // POST /buyer/orders — Crear pedido DRAFT con items
+  // F2.BACK-5: Solo para Cliente Full; Cliente API → 422 LOGISTICS_ONLY_FEATURE_UNAVAILABLE
   router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = createOrderSchema.parse(req.body);

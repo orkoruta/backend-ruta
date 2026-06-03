@@ -37,6 +37,7 @@ import { buyerRecurrenceRouter, buyerOrderRecurrenceRouter } from './routes/buye
 import { adminRecurrenceRouter } from './routes/admin_recurrence.js'; // F3.B4-BACK-1
 import { adminCorporateOrdersRouter } from './routes/admin_corporate_orders.js'; // F3.B5-BACK-1
 import { adminApiKeysRouter } from './routes/admin_api_keys.js'; // F2.BACK-1
+import { apiClientOrdersRouter } from './routes/api_client_orders.js'; // F2.BACK-4
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -61,6 +62,9 @@ app.use('/healthz', healthzRouter);
 app.use('/', openApiRouter);
 app.use('/auth', authRouter);
 app.use('/public/clients/:slug', publicCatalogRouter);
+
+// F2.BACK-4 — Cliente API endpoints (API key auth, NOT JWT — must come BEFORE authenticate)
+app.use('/api', apiClientOrdersRouter);
 
 // Apply authentication to all routes below
 app.use(authenticate);
