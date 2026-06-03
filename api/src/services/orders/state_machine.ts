@@ -7,7 +7,8 @@ export type TransitionActor =
   | 'OPERATOR_CLIENT'
   | 'ADMIN_RUTA'
   | 'COURIER'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'API_CLIENT'; // F2.2.BACK-3: Cliente API (máquina-a-máquina)
 
 export interface TransitionContext {
   paymentStatus?: string;
@@ -94,31 +95,31 @@ function buildTransitions(): TransitionMap {
 
   // PREPARING — bifurcación logística (2.BACK-2)
   addRule(m, OrderStatus.PREPARING, OrderStatus.AWAITING_COURIER_ASSIGNMENT, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
     condition: (ctx) =>
       ctx.deliveryType === 'SHIP' && ctx.deliveryCarrierType === 'OWN_FLEET',
   });
   addRule(m, OrderStatus.PREPARING, OrderStatus.READY_TO_SHIP, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
     condition: (ctx) => ctx.deliveryType === 'SHIP',
   });
   addRule(m, OrderStatus.PREPARING, OrderStatus.READY_FOR_PICKUP, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
     condition: (ctx) => ctx.deliveryType === 'PICKUP',
   });
   addRule(m, OrderStatus.PREPARING, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.PREPARING, OrderStatus.CANCELLED_BY_ADMIN, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
   });
 
   // ── FLUJO 2 — SHIP ──────────────────────────────────────────────────
 
   // AWAITING_COURIER_ASSIGNMENT (3.BACK-1)
   addRule(m, OrderStatus.AWAITING_COURIER_ASSIGNMENT, OrderStatus.COURIER_ASSIGNED, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
   });
   addRule(m, OrderStatus.AWAITING_COURIER_ASSIGNMENT, OrderStatus.SHIPMENT_HOLD, {
-    actors: ['SYSTEM', 'ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['SYSTEM', 'ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
   });
 
   // COURIER_ASSIGNED (3.BACK-2)
@@ -129,11 +130,11 @@ function buildTransitions(): TransitionMap {
 
   // READY_TO_SHIP (3.BACK-2)
   addRule(m, OrderStatus.READY_TO_SHIP, OrderStatus.SHIPPED, {
-    actors: ['COURIER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['COURIER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
   });
   addRule(m, OrderStatus.READY_TO_SHIP, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.READY_TO_SHIP, OrderStatus.SHIPMENT_HOLD, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'API_CLIENT'],
   });
 
   // SHIPMENT_HOLD
