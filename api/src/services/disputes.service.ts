@@ -377,7 +377,13 @@ export const disputesService = {
 
       await tx.orders.update({
         where: { id_client_id: { id: existing.order_id, client_id: BigInt(clientId) } },
-        data: { dispute_status: DISPUTE_STATUS.DISPUTE_RESOLVED_WITH_RETURN, updated_at: now },
+        data: {
+          dispute_status: DISPUTE_STATUS.DISPUTE_RESOLVED_WITH_RETURN,
+          order_status: 'CLOSED',
+          closure_reason: 'COMPLETED_SUCCESSFULLY',
+          closed_at: now,
+          updated_at: now,
+        },
       });
 
       await audit(tx, clientId, actorUserId, 'USER', 'ADMIN_CLIENT', 'DISPUTE_RESOLVED_WITH_RETURN', existing.id, {
@@ -464,7 +470,11 @@ export const disputesService = {
 
       await tx.orders.update({
         where: { id_client_id: { id: existing.order_id, client_id: BigInt(clientId) } },
-        data: { dispute_status: DISPUTE_STATUS.DISPUTE_RESOLVED_WITH_REFUND, updated_at: now },
+        data: {
+          dispute_status: DISPUTE_STATUS.DISPUTE_RESOLVED_WITH_REFUND,
+          refund_status: 'REFUND_PENDING',
+          updated_at: now,
+        },
       });
 
       await audit(tx, clientId, actorUserId, 'USER', 'ADMIN_CLIENT', 'DISPUTE_RESOLVED_WITH_REFUND', existing.id, {

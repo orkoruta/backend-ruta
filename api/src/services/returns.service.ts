@@ -336,7 +336,11 @@ export const returnsService = {
 
       await tx.orders.update({
         where: { id_client_id: { id: existing.order_id, client_id: BigInt(clientId) } },
-        data: { return_status: ReturnStatus.RETURN_APPROVED, updated_at: now },
+        data: {
+          return_status: ReturnStatus.RETURN_APPROVED,
+          refund_status: 'REFUND_PENDING',
+          updated_at: now,
+        },
       });
 
       await audit(tx, clientId, actor.id, 'USER', actor.user_type, 'RETURN_APPROVED', existing.id, {
