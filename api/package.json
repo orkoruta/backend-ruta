@@ -16,7 +16,7 @@
   "dependencies": {
     "@logtail/pino": "^0.5.8",
     "@orkoruta/db": "^1.0.0",
-    "@orkoruta/shared": "^1.2.0",
+    "@orkoruta/shared": "^1.5.2",
     "@types/cors": "^2.8.19",
     "argon2": "^0.41.1",
     "cors": "^2.8.6",
