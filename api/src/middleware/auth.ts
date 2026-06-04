@@ -8,6 +8,10 @@ export interface AuthenticatedUser {
   user_type: string;
   session_id: number;
   email?: string;
+  // F2.2.BACK-2: campos para Cliente API
+  userType?: 'JWT' | 'API_CLIENT';
+  apiKeyId?: bigint;
+  scopes?: string[];
 }
 
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -78,6 +78,12 @@ export async function requireIdempotencyKey(req: Request, res: Response, next: N
       }
 
       if (existing.response_status === PENDING_STATUS) {
+        // If this request already registered the key upstream (multiple routers at same prefix),
+        // skip silently instead of blocking with 409.
+        if (res.locals['idempotencyKeyRegistered'] === idempotencyKey) {
+          next();
+          return;
+        }
         res.status(409).json(toApiError('IDEMPOTENCY_CONFLICT', 'El request idempotente aún está en proceso'));
         return;
       }
@@ -98,12 +104,19 @@ export async function requireIdempotencyKey(req: Request, res: Response, next: N
         },
       }),
     );
+    // Mark this key as registered for this request to prevent duplicate-middleware conflicts.
+    res.locals['idempotencyKeyRegistered'] = idempotencyKey;
   } catch (error) {
     if (isMissingMockDelegate(error)) {
       next();
       return;
     }
     if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {
+      // P2002 means the key already exists — same request registered it upstream.
+      if (res.locals['idempotencyKeyRegistered'] === idempotencyKey) {
+        next();
+        return;
+      }
       res.status(409).json(toApiError('IDEMPOTENCY_CONFLICT', 'El request idempotente aún está en proceso'));
       return;
     }

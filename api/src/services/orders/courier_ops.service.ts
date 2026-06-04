@@ -4,6 +4,35 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
+import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+function emitWebhook(
+  clientId: number,
+  orderId: number,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  const boss = getMaintenanceBoss();
+  if (!boss) return; // sin boss en entorno test/sin inicializar
+
+  const payload = {
+    event_type: eventType,
+    client_id: clientId,
+    order_id: orderId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  setImmediate(() => {
+    processWebhookEvent(eventType, payload, clientId, boss).catch((err: unknown) => {
+      logger.warn({ err, clientId, orderId, eventType }, 'courier_ops: error emitiendo webhook');
+    });
+  });
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -266,7 +295,16 @@ export const courierOpsService = {
         include: orderInclude,
       });
 
-      return serializeOrder(updated!);
+      const result = serializeOrder(updated!);
+
+      // F2.BACK-6 — ORDER_SHIPPED webhook
+      emitWebhook(clientId, orderId, 'ORDER_SHIPPED', {
+        order_status: OrderStatus.SHIPPED,
+        delivery_type: updated!.delivery_type,
+        courier_user_id: courierUserId,
+      });
+
+      return result;
     });
   },
 
@@ -323,7 +361,16 @@ export const courierOpsService = {
         include: orderInclude,
       });
 
-      return serializeOrder(updated!);
+      const result = serializeOrder(updated!);
+
+      // F2.BACK-6 — ORDER_OUT_FOR_DELIVERY webhook
+      emitWebhook(clientId, orderId, 'ORDER_OUT_FOR_DELIVERY', {
+        order_status: OrderStatus.OUT_FOR_DELIVERY,
+        delivery_type: updated!.delivery_type,
+        courier_user_id: courierUserId,
+      });
+
+      return result;
     });
   },
 
@@ -397,7 +444,17 @@ export const courierOpsService = {
         include: orderInclude,
       });
 
-      return serializeOrder(updated!);
+      const result = serializeOrder(updated!);
+
+      // F2.BACK-6 — ORDER_DELIVERY_FAILED webhook
+      emitWebhook(clientId, orderId, 'ORDER_DELIVERY_FAILED', {
+        order_status: OrderStatus.DELIVERY_ATTEMPTED,
+        delivery_type: updated!.delivery_type,
+        courier_user_id: courierUserId,
+        reason,
+      });
+
+      return result;
     });
   },
 
@@ -434,7 +491,17 @@ export const courierOpsService = {
         include: orderInclude,
       });
 
-      return serializeOrder(updated!);
+      const result = serializeOrder(updated!);
+
+      // F2.BACK-6 — ORDER_DELIVERED webhook
+      emitWebhook(clientId, orderId, 'ORDER_DELIVERED', {
+        order_status: OrderStatus.DELIVERED,
+        delivery_type: updated!.delivery_type,
+        courier_user_id: courierUserId,
+        delivered_at: updated!.delivered_at?.toISOString() ?? new Date().toISOString(),
+      });
+
+      return result;
     });
   },
 };

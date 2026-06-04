@@ -7,8 +7,38 @@ import { requireAdminClient } from '../middleware/auth.js';
 import { HttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { assertTransition } from '../services/orders/state_machine.js';
+import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
+import { logger } from '../lib/logger.js';
+import { processWebhookEvent } from '../services/webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../jobs/maintenance_boss.js';
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+function emitWebhook(
+  clientId: number,
+  orderId: number,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  const boss = getMaintenanceBoss();
+  if (!boss) return;
+
+  const payload = {
+    event_type: eventType,
+    client_id: clientId,
+    order_id: orderId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  setImmediate(() => {
+    processWebhookEvent(eventType, payload, clientId, boss).catch((err: unknown) => {
+      logger.warn({ err, clientId, orderId, eventType }, 'admin_orders: error emitiendo webhook');
+    });
+  });
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -283,7 +313,7 @@ export const adminOrdersService = {
       }
 
       assertTransition(cancelStatus, OrderStatus.CLOSED, 'SYSTEM');
-      return tx.orders.update({
+      const closedOrder = await tx.orders.update({
         where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
         data: {
           order_status: OrderStatus.CLOSED,
@@ -293,6 +323,11 @@ export const adminOrdersService = {
         },
         include: orderInclude,
       });
+
+      // Si el pedido estaba pagado, marcar refund_status = REFUND_PENDING
+      await setRefundPendingIfPaid(tx, BigInt(orderId), BigInt(clientId), closedOrder.payment_status);
+
+      return closedOrder;
     });
 
     return serializeOrder(order);
@@ -372,6 +407,14 @@ export const adminOrdersService = {
         include: orderInclude,
       });
     });
+
+    // F2.BACK-6 — ORDER_READY_FOR_PICKUP webhook (solo para pedidos PICKUP)
+    if (order.delivery_type === 'PICKUP') {
+      emitWebhook(clientId, orderId, 'ORDER_READY_FOR_PICKUP', {
+        order_status: OrderStatus.READY_FOR_PICKUP,
+        delivery_type: order.delivery_type,
+      });
+    }
 
     return serializeOrder(order);
   },
@@ -478,8 +521,8 @@ type AdminOrdersService = typeof adminOrdersService;
 export function createAdminOrdersRouter(service: AdminOrdersService = adminOrdersService): Router {
   const router = Router();
 
-  // GET endpoints do not require idempotency key
-  router.use(requireIdempotencyKey);
+  // Idempotency is applied per-route (not globally) to avoid double-application
+  // when secondary routers are mounted at the same /admin/orders prefix.
 
   // GET /admin/orders — requires at least admin or operator role
   router.get('/', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
@@ -502,7 +545,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/accept — ADMIN_CLIENT + ADMIN_RUTA (seller acceptance)
-  router.post('/:id/accept', requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/accept', requireIdempotencyKey, requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.accept(req.user!.client_id, id, req.user!));
@@ -512,7 +555,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/reject — ADMIN_CLIENT + ADMIN_RUTA (seller rejection)
-  router.post('/:id/reject', requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/reject', requireIdempotencyKey, requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       rejectOrderSchema.parse(req.body); // validate body shape even if optional
@@ -523,7 +566,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/mark-preparing — ADMIN_CLIENT + OPERATOR_CLIENT + ADMIN_RUTA
-  router.post('/:id/mark-preparing', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/mark-preparing', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.markPreparing(req.user!.client_id, id, req.user!));
@@ -533,7 +576,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/mark-ready — ADMIN_CLIENT + OPERATOR_CLIENT + ADMIN_RUTA
-  router.post('/:id/mark-ready', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/mark-ready', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       const { delivery_carrier_type } = markReadySchema.parse(req.body ?? {});
@@ -544,7 +587,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/approve-cancel-request
-  router.post('/:id/approve-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/approve-cancel-request', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.approveCancelRequest(req.user!.client_id, id, req.user!));
@@ -554,7 +597,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/reject-cancel-request
-  router.post('/:id/reject-cancel-request', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/reject-cancel-request', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       const { reason } = rejectCancelRequestBodySchema.parse(req.body);
@@ -565,7 +608,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/return-to-origin
-  router.post('/:id/return-to-origin', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/return-to-origin', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.returnToOrigin(req.user!.client_id, id, req.user!));
@@ -575,7 +618,7 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/return-to-origin-received
-  router.post('/:id/return-to-origin-received', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/return-to-origin-received', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.returnToOriginReceived(req.user!.client_id, id, req.user!));

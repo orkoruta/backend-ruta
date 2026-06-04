@@ -10,6 +10,7 @@ import { registerAutoConfirmDeliveredJob } from './auto_confirm_delivered.job.js
 import { registerPickupExpirationJob } from './pickup_expiration.job.js'; // 4.BACK-1
 import { registerAtPickupExpirationJob } from './at_pickup_expiration.job.js'; // 4.BACK-1
 import { registerWebhookSenderJob } from './webhook_sender.job.js'; // 6.INFRA-3
+import { registerRecurrenceGeneratorJob } from './recurrence_generator.job.js'; // F3.B4.2.BACK-2
 
 let bossInstance: PgBoss | null = null;
 let initPromise: Promise<void> | null = null;
@@ -36,6 +37,7 @@ export async function initMaintenanceJobs(): Promise<void> {
     await registerPickupExpirationJob(boss); // 4.BACK-1
     await registerAtPickupExpirationJob(boss); // 4.BACK-1
     await registerWebhookSenderJob(boss); // 6.INFRA-3
+    await registerRecurrenceGeneratorJob(boss); // F3.B4.2.BACK-2
 
     logger.info('Maintenance jobs initialized');
   })();

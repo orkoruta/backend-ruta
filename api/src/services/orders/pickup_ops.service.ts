@@ -16,6 +16,35 @@ import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 import type { TransitionActor } from './state_machine.js';
+import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
+
+// ── Webhook helper ────────────────────────────────────────────────────────────
+
+function emitWebhook(
+  clientId: number,
+  orderId: number,
+  eventType: string,
+  data: Record<string, unknown>,
+): void {
+  const boss = getMaintenanceBoss();
+  if (!boss) return;
+
+  const payload = {
+    event_type: eventType,
+    client_id: clientId,
+    order_id: orderId,
+    timestamp: new Date().toISOString(),
+    data,
+  };
+
+  setImmediate(() => {
+    processWebhookEvent(eventType, payload, clientId, boss).catch((err: unknown) => {
+      logger.warn({ err, clientId, orderId, eventType }, 'pickup_ops: error emitiendo webhook');
+    });
+  });
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -223,10 +252,19 @@ export async function markPickupDelivered(
       },
     });
 
-    return {
+    const pickupResult = {
       order_id: orderId,
       order_status: OrderStatus.DELIVERED,
       delivered_at: deliveredAt.toISOString(),
     };
+
+    // F2.BACK-6 — ORDER_PICKED_UP webhook (PICKUP delivery entregado)
+    emitWebhook(clientId, orderId, 'ORDER_PICKED_UP', {
+      order_status: OrderStatus.DELIVERED,
+      delivery_type: 'PICKUP',
+      delivered_at: deliveredAt.toISOString(),
+    });
+
+    return pickupResult;
   });
 }

@@ -5,6 +5,9 @@ import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 import type { TransitionActor } from './state_machine.js';
+import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
 // States that make a courier unavailable for assignment
 const COURIER_BUSY_STATUSES: string[] = [
@@ -105,7 +108,7 @@ export const courierAssignmentService = {
         );
       }
 
-      return {
+      const assignResult = {
         id: Number(order.id),
         client_id: Number(order.client_id),
         order_status: OrderStatus.COURIER_ASSIGNED,
@@ -117,6 +120,28 @@ export const courierAssignmentService = {
           phone: courier.phone,
         },
       };
+
+      // F2.BACK-6 — COURIER_ASSIGNED webhook
+      const boss = getMaintenanceBoss();
+      if (boss) {
+        const payload = {
+          event_type: 'COURIER_ASSIGNED',
+          client_id: clientId,
+          order_id: orderId,
+          timestamp: new Date().toISOString(),
+          data: {
+            order_status: OrderStatus.COURIER_ASSIGNED,
+            courier_user_id: courierUserId,
+          },
+        };
+        setImmediate(() => {
+          processWebhookEvent('COURIER_ASSIGNED', payload, clientId, boss).catch((err: unknown) => {
+            logger.warn({ err, clientId, orderId }, 'courier_assignment: error emitiendo COURIER_ASSIGNED webhook');
+          });
+        });
+      }
+
+      return assignResult;
     });
   },
 

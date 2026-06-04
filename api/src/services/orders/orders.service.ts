@@ -183,13 +183,11 @@ export const ordersService = {
         const lineSubtotal = unitPrice * item.quantity;
         subtotal += lineSubtotal;
         return {
-          product_id: BigInt(item.product_id),
           product_name: product.name,
           sku: product.sku ?? null,
           quantity: item.quantity,
           unit_price: unitPrice,
           subtotal: lineSubtotal,
-          client_id: BigInt(clientId),
         };
       });
 
@@ -344,7 +342,31 @@ export const ordersService = {
     });
 
     void input; // reason se puede persistir en audit_events (responsabilidad futura)
-    return serializeOrder(order);
+
+    const serialized = serializeOrder(order);
+
+    // F2.BACK-6 — ORDER_CANCELLED webhook (cancelación por comprador)
+    const boss = getMaintenanceBoss();
+    if (boss) {
+      const webhookPayload = {
+        event_type: 'ORDER_CANCELLED',
+        client_id: clientId,
+        order_id: orderId,
+        timestamp: new Date().toISOString(),
+        data: {
+          order_status: OrderStatus.CLOSED,
+          closure_reason: 'CANCELLED_BY_CUSTOMER',
+          delivery_type: serialized.delivery_type,
+        },
+      };
+      setImmediate(() => {
+        processWebhookEvent('ORDER_CANCELLED', webhookPayload, clientId, boss).catch((err: unknown) => {
+          logger.warn({ err, clientId, orderId }, 'orders.service: error emitiendo ORDER_CANCELLED webhook');
+        });
+      });
+    }
+
+    return serialized;
   },
 
   async requestCancel(
@@ -487,3 +509,177 @@ export const ordersService = {
 };
 
 export { createOrderSchema, confirmOrderSchema, cancelOrderSchema };
+
+// ── F2.2.BACK-3 — createApiClientOrder ───────────────────────────────────────
+
+import { createApiOrderSchema } from '@orkoruta/shared';
+import { logger } from '../../lib/logger.js';
+import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
+
+export type CreateApiOrderInput = z.infer<typeof createApiOrderSchema>;
+
+/**
+ * Crea un pedido para un Cliente API (máquina-a-máquina).
+ *
+ * - Solo para clientes con `client_type = 'API'`. Si es FULL → 422.
+ * - El pedido entra directamente en `initial_state` (sin pasar por DRAFT).
+ * - Los ítems son datos flat (no referencias al catálogo de RUTA).
+ * - buyer_id usa el usuario que creó la API key (createdByUserId) como
+ *   referencia en BD. En onboarding de Cliente API se crea un usuario
+ *   sistema dedicado para este propósito.
+ */
+export async function createApiClientOrder(
+  clientId: bigint,
+  input: CreateApiOrderInput,
+  apiKeyId: bigint,
+  createdByUserId: bigint,
+): Promise<ReturnType<typeof serializeOrder>> {
+  // Validar que el cliente es de tipo API
+  const client = await withTenantReadOnly(Number(clientId), 'ADMIN_RUTA', (tx) =>
+    tx.clients.findUnique({
+      where: { id: clientId },
+      select: { client_type: true },
+    })
+  );
+
+  if (!client) {
+    throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Cliente no encontrado');
+  }
+
+  if (client.client_type !== 'API') {
+    throw new HttpError(422, 'LOGISTICS_ONLY_FEATURE_UNAVAILABLE', 'Esta función solo aplica para Clientes API');
+  }
+
+  // Validar input (ya parseado, pero re-valida por seguridad)
+  const validated = createApiOrderSchema.parse(input);
+
+  // Mapear payment_method del schema API a valores de BD
+  const dbPaymentMethod = validated.payment_method === 'PREPAID_EXTERNAL' ? 'EXTERNAL_PREPAID' : 'CASH_ON_DELIVERY';
+
+  // Determinar payment_status según payment_method
+  const paymentStatus =
+    validated.payment_method === 'PREPAID_EXTERNAL'
+      ? PaymentStatus.PAID
+      : PaymentStatus.PENDING_COLLECTION; // COD
+
+  // Calcular subtotal desde los ítems (unit_price_cents → COP decimales)
+  let subtotal = 0;
+  const items = validated.items.map((item) => {
+    const unitPrice = item.unit_price_cents / 100;
+    const lineSubtotal = unitPrice * item.quantity;
+    subtotal += lineSubtotal;
+    return {
+      product_name: item.name,
+      sku: item.external_sku ?? null,
+      quantity: item.quantity,
+      unit_price: unitPrice,
+      subtotal: lineSubtotal,
+    };
+  });
+
+  const addr = validated.delivery_address;
+
+  const order = await withTenant(Number(clientId), 'ADMIN_CLIENT', async (tx) => {
+    // Insertar el pedido directamente en initial_state
+    const created = await tx.orders.create({
+      data: {
+        client_id: clientId,
+        buyer_id: createdByUserId, // FK sentinel: usuario admin que creó la API key
+        order_origin: 'API_LOGISTICS',
+        order_status: validated.initial_state,
+        payment_status: paymentStatus,
+        refund_status: 'REFUND_NOT_REQUIRED',
+        delivery_type: validated.delivery_type,
+        payment_method: dbPaymentMethod,
+        buyer_type: 'CORPORATE',
+        subtotal,
+        total: subtotal,
+        currency: 'COP',
+        submitted_at: new Date(),
+        pickup_point_id: validated.pickup_point_id ? BigInt(String(validated.pickup_point_id)) : null,
+        // Dirección de entrega si es SHIP
+        delivery_address_line: addr?.street ?? null,
+        delivery_address_city: addr?.city ?? null,
+        delivery_address_state: addr?.state ?? null,
+        delivery_address_postal_code: addr?.postal_code ?? null,
+        delivery_address_latitude: addr?.coordinates?.lat ?? null,
+        delivery_address_longitude: addr?.coordinates?.lng ?? null,
+        // external_reference y customer_info van en metadata de order_state_history
+        order_items: {
+          create: items,
+        },
+      },
+      include: orderInclude,
+    });
+
+    // Registrar estado inicial en order_state_history
+    await tx.order_state_history.create({
+      data: {
+        client_id: clientId,
+        order_id: created.id,
+        state_dimension: 'order_status',
+        previous_value: null,
+        new_value: validated.initial_state,
+        changed_by_actor_type: 'API_CLIENT',
+        metadata: {
+          api_key_id: String(apiKeyId),
+          external_reference: validated.external_reference ?? null,
+          customer_info: validated.customer_info ?? null,
+          notes: validated.notes ?? null,
+        },
+      },
+    });
+
+    return created;
+  });
+
+  // Auditar la creación (fire-and-forget)
+  setImmediate(() => {
+    withTenant(Number(clientId), 'ADMIN_CLIENT', (tx) =>
+      tx.audit_events.create({
+        data: {
+          client_id: clientId,
+          actor_api_key_id: apiKeyId,
+          actor_type: 'API_CLIENT',
+          action: 'ORDER_CREATED',
+          entity_type: 'orders',
+          entity_id: order.id,
+          result: 'SUCCESS',
+          metadata: {
+            initial_state: validated.initial_state,
+            external_reference: validated.external_reference ?? null,
+          },
+        },
+      })
+    ).catch((err: unknown) => {
+      logger.warn({ err, clientId }, 'createApiClientOrder: error auditando ORDER_CREATED');
+    });
+  });
+
+  // F2.BACK-6 — ORDER_CREATED webhook (fire-and-forget)
+  const boss = getMaintenanceBoss();
+  if (boss) {
+    const webhookPayload = {
+      event_type: 'ORDER_CREATED',
+      client_id: Number(clientId),
+      order_id: Number(order.id),
+      timestamp: new Date().toISOString(),
+      data: {
+        order_status: validated.initial_state,
+        delivery_type: validated.delivery_type,
+        payment_method: validated.payment_method,
+        external_reference: validated.external_reference ?? null,
+      },
+    };
+    setImmediate(() => {
+      processWebhookEvent('ORDER_CREATED', webhookPayload, Number(clientId), boss).catch((err: unknown) => {
+        logger.warn({ err, clientId: String(clientId) }, 'createApiClientOrder: error emitiendo ORDER_CREATED webhook');
+      });
+    });
+  }
+
+  logger.info({ clientId: String(clientId), orderId: String(order.id), initial_state: validated.initial_state }, 'Pedido API creado');
+
+  return serializeOrder(order);
+}

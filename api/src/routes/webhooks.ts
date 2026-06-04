@@ -4,10 +4,28 @@ import { prisma, withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { wompiWebhookEventSchema, PaymentStatus } from '@orkoruta/shared';
 import { toApiError } from '../lib/errors.js';
 import { WompiClient } from '../lib/wompi_client.js';
+import { refundsService } from '../services/refunds.service.js';
+import { logger } from '../lib/logger.js';
 
 const pathParamsSchema = z.object({
   client_id: z.coerce.number().int().positive(),
   provider_id: z.coerce.bigint().positive(),
+});
+
+// Schema especulativo para webhooks de reembolso de Wompi (Fase 3, F3.B1.2.BACK-2)
+// Wompi Colombia puede no tener API de reembolso; este schema se activa si la tienen.
+export const wompiRefundWebhookEventSchema = z.object({
+  event: z.enum(['refund.updated', 'refund_confirmed', 'refund_failed']),
+  data: z.object({
+    refund: z.object({
+      id: z.string(),
+      status: z.enum(['APPROVED', 'DECLINED', 'ERROR']),
+      transaction_id: z.string(),
+      amount_in_cents: z.number().int().positive(),
+    }),
+  }),
+  timestamp: z.number().int().positive().optional(),
+  environment: z.enum(['test', 'production']).optional(),
 });
 
 function mapWompiStatus(wompiStatus: string): string {
@@ -22,6 +40,17 @@ function mapWompiStatus(wompiStatus: string): string {
       return PaymentStatus.PAYMENT_REJECTED_FINAL;
   }
 }
+
+function mapWompiRefundStatus(wompiStatus: string): 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED' {
+  switch (wompiStatus) {
+    case 'APPROVED':
+      return 'REFUNDED';
+    default:
+      return 'FAILED';
+  }
+}
+
+const REFUND_EVENT_TYPES = new Set(['refund.updated', 'refund_confirmed', 'refund_failed']);
 
 export function createWebhooksRouter(): Router {
   const router = Router();
@@ -64,9 +93,109 @@ export function createWebhooksRouter(): Router {
           return;
         }
 
+        // Detectar tipo de evento antes de parsear el schema completo
+        let eventType: string;
+        let parsedRaw: unknown;
+        try {
+          parsedRaw = JSON.parse(rawBody);
+          eventType = (parsedRaw as { event?: string }).event ?? '';
+        } catch {
+          res.status(400).json(toApiError('VALIDATION_ERROR', 'Payload del webhook inválido'));
+          return;
+        }
+
+        // ── Rama: evento de reembolso ──────────────────────────────────────────
+        if (REFUND_EVENT_TYPES.has(eventType)) {
+          let refundPayload: z.infer<typeof wompiRefundWebhookEventSchema>;
+          try {
+            refundPayload = wompiRefundWebhookEventSchema.parse(parsedRaw);
+          } catch {
+            res.status(400).json(toApiError('VALIDATION_ERROR', 'Payload del webhook de reembolso inválido'));
+            return;
+          }
+
+          const { refund } = refundPayload.data;
+          const providerEventId = `refund_${refund.id}`;
+
+          // Deduplicación
+          const existingRefundEvent = await prisma.external_webhook_events.findUnique({
+            where: {
+              payment_provider_id_provider_event_id: {
+                payment_provider_id: provider_id,
+                provider_event_id: providerEventId,
+              },
+            },
+            select: { id: true },
+          });
+
+          if (existingRefundEvent) {
+            res.json({ received: true });
+            return;
+          }
+
+          // Buscar el pago original por transaction_id → order → refund record
+          const payment = await withTenantReadOnly(client_id, 'ADMIN_RUTA', (tx) =>
+            tx.payments.findFirst({
+              where: {
+                client_id: BigInt(client_id),
+                external_transaction_id: refund.transaction_id,
+              },
+              select: { id: true, order_id: true },
+            })
+          );
+
+          const refundRecord = payment
+            ? await withTenantReadOnly(client_id, 'ADMIN_RUTA', (tx) =>
+                tx.refunds.findFirst({
+                  where: {
+                    client_id: BigInt(client_id),
+                    order_id: payment.order_id,
+                    status: 'PROVIDER_REQUESTED',
+                  },
+                  select: { id: true },
+                })
+              )
+            : null;
+
+          const outcome = mapWompiRefundStatus(refund.status);
+
+          await withTenant(client_id, 'ADMIN_RUTA', async (tx) => {
+            await tx.external_webhook_events.create({
+              data: {
+                client_id: BigInt(client_id),
+                payment_provider_id: provider_id,
+                provider_event_id: providerEventId,
+                payload: parsedRaw as object,
+                signature_valid: true,
+                processing_result: `REFUND_${outcome}`,
+                related_order_id: payment?.order_id ?? null,
+                processed_at: new Date(),
+              },
+            });
+          });
+
+          if (refundRecord) {
+            await refundsService.handleProviderRefundWebhook(
+              client_id,
+              Number(refundRecord.id),
+              outcome,
+              refund.id,
+            );
+          } else {
+            logger.warn(
+              { clientId: client_id, wompiRefundId: refund.id, transactionId: refund.transaction_id },
+              'Wompi refund webhook: no matching refund record in PROVIDER_REQUESTED state',
+            );
+          }
+
+          res.json({ received: true });
+          return;
+        }
+
+        // ── Rama: evento de pago (lógica existente) ───────────────────────────
         let parsedPayload: z.infer<typeof wompiWebhookEventSchema>;
         try {
-          parsedPayload = wompiWebhookEventSchema.parse(JSON.parse(rawBody));
+          parsedPayload = wompiWebhookEventSchema.parse(parsedRaw);
         } catch {
           res.status(400).json(toApiError('VALIDATION_ERROR', 'Payload del webhook inválido'));
           return;

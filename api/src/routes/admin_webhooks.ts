@@ -135,10 +135,5 @@ export function createAdminWebhooksRouter(): Router {
     },
   );
 
-  // 404 catch-all for this sub-router
-  router.use((_req: Request, res: Response) => {
-    res.status(404).json(toApiError('RESOURCE_NOT_FOUND', 'Endpoint no encontrado'));
-  });
-
   return router;
 }
