@@ -154,6 +154,17 @@ const orderInclude = {
       subtotal: true,
     },
   },
+  order_state_history: {
+    select: {
+      id: true,
+      from_status: true,
+      to_status: true,
+      actor_type: true,
+      notes: true,
+      created_at: true,
+    },
+    orderBy: { created_at: 'desc' as const },
+  },
 } as const;
 
 export const ordersService = {

@@ -153,6 +153,14 @@ function serializeOrder(o: {
     unit_price: unknown;
     subtotal: unknown;
   }[];
+  order_state_history?: {
+    id: bigint;
+    from_status: string | null;
+    to_status: string;
+    actor_type: string;
+    notes: string | null;
+    created_at: Date;
+  }[];
 }) {
   return {
     id: Number(o.id),
@@ -177,6 +185,14 @@ function serializeOrder(o: {
       quantity: i.quantity,
       unit_price: Number(i.unit_price),
       subtotal: Number(i.subtotal),
+    })),
+    history: (o.order_state_history ?? []).map((h) => ({
+      id: Number(h.id),
+      from_status: h.from_status,
+      to_status: h.to_status,
+      actor_type: h.actor_type,
+      notes: h.notes,
+      created_at: h.created_at.toISOString(),
     })),
     created_at: o.created_at.toISOString(),
     updated_at: o.updated_at.toISOString(),
