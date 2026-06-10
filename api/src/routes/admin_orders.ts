@@ -155,11 +155,12 @@ function serializeOrder(o: {
   }[];
   order_state_history?: {
     id: bigint;
-    from_status: string | null;
-    to_status: string;
-    actor_type: string;
-    notes: string | null;
-    created_at: Date;
+    state_dimension: string;
+    previous_value: string | null;
+    new_value: string;
+    changed_by_actor_type: string | null;
+    reason: string | null;
+    occurred_at: Date;
   }[];
 }) {
   return {
@@ -188,11 +189,12 @@ function serializeOrder(o: {
     })),
     history: (o.order_state_history ?? []).map((h) => ({
       id: Number(h.id),
-      from_status: h.from_status,
-      to_status: h.to_status,
-      actor_type: h.actor_type,
-      notes: h.notes,
-      created_at: h.created_at.toISOString(),
+      state_dimension: h.state_dimension,
+      previous_value: h.previous_value,
+      new_value: h.new_value,
+      actor_type: h.changed_by_actor_type,
+      reason: h.reason,
+      occurred_at: h.occurred_at.toISOString(),
     })),
     created_at: o.created_at.toISOString(),
     updated_at: o.updated_at.toISOString(),

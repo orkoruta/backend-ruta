@@ -88,6 +88,15 @@ function serializeOrder(o: {
     unit_price: unknown;
     subtotal: unknown;
   }[];
+  order_state_history?: {
+    id: bigint;
+    state_dimension: string;
+    previous_value: string | null;
+    new_value: string;
+    changed_by_actor_type: string | null;
+    reason: string | null;
+    occurred_at: Date;
+  }[];
 }) {
   return {
     id: Number(o.id),
@@ -134,6 +143,15 @@ function serializeOrder(o: {
       unit_price: Number(item.unit_price),
       subtotal: Number(item.subtotal),
     })),
+    state_history: (o.order_state_history ?? []).map((h) => ({
+      id: Number(h.id),
+      state_dimension: h.state_dimension,
+      previous_value: h.previous_value,
+      new_value: h.new_value,
+      actor_type: h.changed_by_actor_type,
+      reason: h.reason,
+      occurred_at: h.occurred_at.toISOString(),
+    })),
     created_at: o.created_at.toISOString(),
     updated_at: o.updated_at.toISOString(),
     submitted_at: o.submitted_at?.toISOString() ?? null,
@@ -157,13 +175,14 @@ const orderInclude = {
   order_state_history: {
     select: {
       id: true,
-      from_status: true,
-      to_status: true,
-      actor_type: true,
-      notes: true,
-      created_at: true,
+      state_dimension: true,
+      previous_value: true,
+      new_value: true,
+      changed_by_actor_type: true,
+      reason: true,
+      occurred_at: true,
     },
-    orderBy: { created_at: 'desc' as const },
+    orderBy: { occurred_at: 'desc' as const },
   },
 } as const;
 
