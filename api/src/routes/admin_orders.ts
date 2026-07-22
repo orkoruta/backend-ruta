@@ -8,6 +8,7 @@ import { HttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { assertTransition, canTransition } from '../services/orders/state_machine.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
+import { collectionService } from '../services/orders/collection.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
 import { logger } from '../lib/logger.js';
@@ -807,6 +808,17 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.getById(req.user!.client_id, id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /admin/orders/:id/collection-evidence — foto del recibo del cobro COD.
+  // Aparte del detalle porque la imagen embebida pesa cientos de kB.
+  router.get('/:id/collection-evidence', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await collectionService.getCollectionEvidence(req.user!.client_id, id));
     } catch (error) {
       next(error);
     }

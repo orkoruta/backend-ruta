@@ -364,11 +364,17 @@ export const corporateOrdersService = {
       });
 
       // Serializar contacto corporativo en delivery_instructions
+      // `delivery_instructions` es el único campo de texto libre de `orders`, así
+      // que el contacto corporativo viaja aquí como JSON. Las indicaciones reales
+      // de entrega ("Casa 19") van dentro, no sueltas, o se perderían al
+      // sobrescribir el campo.
       const deliveryInstructions = JSON.stringify({
         corporate_contact: input.corporate_contact,
         created_by_actor_id: actor.id,
         created_by_actor_type: actor.user_type,
         notes: input.notes ?? null,
+        delivery_instructions:
+          input.delivery_type === 'SHIP' ? input.delivery_address?.instructions ?? null : null,
       });
 
       const created = await tx.orders.create({

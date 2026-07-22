@@ -19,6 +19,16 @@ const COURIER_BUSY_STATUSES: string[] = [
   OrderStatus.ARRIVED_AT_CUSTOMER,
 ];
 
+/**
+ * Estados que se pintan en el mapa de asignación: los que esperan repartidor y
+ * los que ya lo tienen. El operador necesita ver ambos para decidir a quién
+ * asignar — un pedido nuevo se despacha mejor con quien ya va para esa zona.
+ */
+const MAP_STATUSES: string[] = [
+  OrderStatus.AWAITING_COURIER_ASSIGNMENT,
+  ...COURIER_BUSY_STATUSES,
+];
+
 /** Cuántos pedidos simultáneos admite un repartidor. Configurable por Cliente. */
 const MAX_ORDERS_PARAM = 'limits.max_concurrent_orders_per_courier';
 const DEFAULT_MAX_ORDERS = 3;
@@ -282,7 +292,7 @@ export const courierAssignmentService = {
       tx.orders.findMany({
         where: {
           client_id: BigInt(clientId),
-          order_status: OrderStatus.AWAITING_COURIER_ASSIGNMENT,
+          order_status: { in: MAP_STATUSES },
           delivery_address_latitude: { not: null },
           delivery_address_longitude: { not: null },
         },
@@ -295,6 +305,10 @@ export const courierAssignmentService = {
           delivery_address_latitude: true,
           delivery_address_longitude: true,
           buyer_id: true,
+          courier_user_id: true,
+          users_orders_courier_user_id_client_idTousers: {
+            select: { id: true, full_name: true, phone: true },
+          },
           total: true,
           currency: true,
           created_at: true,
@@ -302,18 +316,24 @@ export const courierAssignmentService = {
       }),
     );
 
-    return orders.map((o) => ({
-      id: Number(o.id),
-      client_id: Number(o.client_id),
-      order_status: o.order_status,
-      delivery_address_line: o.delivery_address_line,
-      delivery_address_city: o.delivery_address_city,
-      latitude: o.delivery_address_latitude ? Number(o.delivery_address_latitude) : null,
-      longitude: o.delivery_address_longitude ? Number(o.delivery_address_longitude) : null,
-      buyer_id: Number(o.buyer_id),
-      total: Number(o.total),
-      currency: o.currency,
-      created_at: o.created_at.toISOString(),
-    }));
+    return orders.map((o) => {
+      const courier = o.users_orders_courier_user_id_client_idTousers;
+      return {
+        id: Number(o.id),
+        client_id: Number(o.client_id),
+        order_status: o.order_status,
+        delivery_address_line: o.delivery_address_line,
+        delivery_address_city: o.delivery_address_city,
+        latitude: o.delivery_address_latitude ? Number(o.delivery_address_latitude) : null,
+        longitude: o.delivery_address_longitude ? Number(o.delivery_address_longitude) : null,
+        buyer_id: Number(o.buyer_id),
+        courier_user_id: o.courier_user_id ? Number(o.courier_user_id) : null,
+        courier_name: courier?.full_name ?? null,
+        courier_phone: courier?.phone ?? null,
+        total: Number(o.total),
+        currency: o.currency,
+        created_at: o.created_at.toISOString(),
+      };
+    });
   },
 };

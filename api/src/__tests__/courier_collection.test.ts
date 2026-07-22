@@ -23,6 +23,7 @@ import { ZodError } from 'zod';
 import { HttpError, sendHttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { createCourierCollectionRouter } from '../routes/courier_collection.js';
+import { MAX_EVIDENCE_DATA_URI_LENGTH } from '../services/orders/collection.service.js';
 
 // ── Mock service ──────────────────────────────────────────────────────────────
 
@@ -30,13 +31,17 @@ const mockService = {
   initiateCollection: vi.fn(),
   recordCollection: vi.fn(),
   recordFailedCollection: vi.fn(),
+  getCollectionEvidence: vi.fn(),
 };
 
 // ── App under test ────────────────────────────────────────────────────────────
 
 function buildApp() {
   const app = express();
-  app.use(express.json());
+  // Mismo límite ampliado que monta app.ts para /courier: la foto del recibo
+  // viaja embebida en el JSON. Con el default de 100 kB estos tests medirían el
+  // límite del body parser en vez de la validación de la evidencia.
+  app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
   app.use(authenticate);
   app.use('/courier', createCourierCollectionRouter(mockService));
@@ -147,6 +152,72 @@ describe('POST /courier/orders/:id/record-collection', () => {
       5001,
       expect.objectContaining({ evidence_url: 'https://cdn.example.com/evidencia.jpg' }),
     );
+  });
+
+  it('200 — acepta la foto embebida como data URI', async () => {
+    stubCourier();
+    mockService.recordCollection.mockResolvedValue(BASE_COLLECTION_RESULT);
+
+    const dataUri = `data:image/jpeg;base64,${'A'.repeat(2000)}`;
+
+    const res = await request(app)
+      .post('/courier/orders/5001/record-collection')
+      .set('Authorization', `Bearer ${COURIER_TOKEN}`)
+      .set('X-Idempotency-Key', 'rec-coll-key-datauri')
+      .send({ ...VALID_COLLECTION_BODY, evidence_url: dataUri });
+
+    expect(res.status).toBe(200);
+    expect(mockService.recordCollection).toHaveBeenCalledWith(
+      7,
+      99,
+      5001,
+      expect.objectContaining({ evidence_url: dataUri }),
+    );
+  });
+
+  it('400 — rechaza una evidencia que no es URL ni imagen embebida', async () => {
+    stubCourier();
+
+    const res = await request(app)
+      .post('/courier/orders/5001/record-collection')
+      .set('Authorization', `Bearer ${COURIER_TOKEN}`)
+      .set('X-Idempotency-Key', 'rec-coll-key-badev')
+      .send({ ...VALID_COLLECTION_BODY, evidence_url: 'foto-del-recibo.jpg' });
+
+    expect(res.status).toBe(400);
+    expect(mockService.recordCollection).not.toHaveBeenCalled();
+  });
+
+  it('400 — rechaza un data URI que no es imagen', async () => {
+    stubCourier();
+
+    const res = await request(app)
+      .post('/courier/orders/5001/record-collection')
+      .set('Authorization', `Bearer ${COURIER_TOKEN}`)
+      .set('X-Idempotency-Key', 'rec-coll-key-badmime')
+      .send({
+        ...VALID_COLLECTION_BODY,
+        evidence_url: `data:application/pdf;base64,${'A'.repeat(200)}`,
+      });
+
+    expect(res.status).toBe(400);
+    expect(mockService.recordCollection).not.toHaveBeenCalled();
+  });
+
+  it('400 — rechaza una foto embebida por encima del tope', async () => {
+    stubCourier();
+
+    const res = await request(app)
+      .post('/courier/orders/5001/record-collection')
+      .set('Authorization', `Bearer ${COURIER_TOKEN}`)
+      .set('X-Idempotency-Key', 'rec-coll-key-toobig')
+      .send({
+        ...VALID_COLLECTION_BODY,
+        evidence_url: `data:image/jpeg;base64,${'A'.repeat(MAX_EVIDENCE_DATA_URI_LENGTH)}`,
+      });
+
+    expect(res.status).toBe(400);
+    expect(mockService.recordCollection).not.toHaveBeenCalled();
   });
 
   it('401 — sin autenticación', async () => {
@@ -448,5 +519,44 @@ describe('POST /courier/orders/:id/record-failed-collection', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('OPTIMISTIC_LOCK_FAILED');
+  });
+});
+
+// ── GET /courier/orders/:id/collection-evidence ───────────────────────────────
+
+describe('GET /courier/orders/:id/collection-evidence', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const EVIDENCE = {
+    payment_id: 1001,
+    order_id: 5001,
+    evidence_url: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+    notes: 'Recibo firmado',
+    amount: 105000,
+    currency: 'COP',
+    payment_method: 'CASH_ON_DELIVERY',
+    payment_method_submethod: null,
+    collected_at: '2026-07-22T18:56:00.000Z',
+  };
+
+  it('200 — devuelve la foto del recibo del pedido asignado', async () => {
+    stubCourier();
+    mockService.getCollectionEvidence.mockResolvedValue(EVIDENCE);
+
+    const res = await request(app)
+      .get('/courier/orders/5001/collection-evidence')
+      .set('Authorization', `Bearer ${COURIER_TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.evidence_url).toBe(EVIDENCE.evidence_url);
+    // El repartidor solo puede ver la evidencia de SUS pedidos: el id va al servicio.
+    expect(mockService.getCollectionEvidence).toHaveBeenCalledWith(7, 5001, 99);
+  });
+
+  it('401 — sin autenticación', async () => {
+    const res = await request(app).get('/courier/orders/5001/collection-evidence');
+
+    expect(res.status).toBe(401);
+    expect(mockService.getCollectionEvidence).not.toHaveBeenCalled();
   });
 });

@@ -57,6 +57,16 @@ app.use(cors({
 // Webhooks: mount before express.json() to preserve raw body for HMAC verification // 2.BACK-3
 app.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
 
+/*
+ * El repartidor manda la foto del recibo embebida en el JSON (base64), hasta que
+ * exista object storage. Ese cuerpo no cabe en el límite por defecto de 100 kB,
+ * así que las rutas del repartidor se parsean antes y con un tope mayor; el
+ * `express.json()` global de abajo las ve ya parseadas y no las vuelve a tocar.
+ * El límite ampliado queda acotado a `/courier` a propósito: subirlo de forma
+ * global abriría el resto de la API a cuerpos de 2 MB sin necesitarlo.
+ */
+app.use('/courier', express.json({ limit: '2mb' }));
+
 // Global middleware
 app.use(express.json());
 app.use(cookieParser());

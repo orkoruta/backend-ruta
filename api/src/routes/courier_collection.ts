@@ -101,6 +101,23 @@ export function createCourierCollectionRouter(service: CollectionService = colle
   });
 
   /**
+   * GET /courier/orders/:id/collection-evidence
+   *
+   * Devuelve la foto del recibo del cobro (data URI o URL) y el contexto del
+   * pago. Va aparte del detalle del pedido: la foto embebida pesa cientos de kB
+   * y no tiene por qué viajar en cada consulta.
+   */
+  router.get('/orders/:id/collection-evidence', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const evidence = await service.getCollectionEvidence(req.user!.client_id, id, req.user!.id);
+      res.json(evidence);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
    * POST /courier/orders/:id/record-failed-collection
    *
    * Registra fallo definitivo de cobro:

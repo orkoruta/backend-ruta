@@ -1,6 +1,7 @@
 import { OrderStatus, PaymentStatus } from '@orkoruta/shared';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
+import { readableInstructions } from './delivery_instructions.js';
 import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
 
@@ -108,7 +109,7 @@ function serializeOrder(o: {
             postal_code: o.delivery_address_postal_code,
             latitude: o.delivery_address_latitude ? Number(o.delivery_address_latitude) : null,
             longitude: o.delivery_address_longitude ? Number(o.delivery_address_longitude) : null,
-            instructions: o.delivery_instructions,
+            instructions: readableInstructions(o.delivery_instructions),
           }
         : null,
     pickup_point_id: o.pickup_point_id ? Number(o.pickup_point_id) : null,

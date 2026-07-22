@@ -2,6 +2,7 @@ import type { TenantTransactionClient } from '@orkoruta/db';
 import { OrderStatus, PaymentStatus } from '@orkoruta/shared';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
+import { readableInstructions } from './delivery_instructions.js';
 import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
 import { logger } from '../../lib/logger.js';
@@ -46,6 +47,14 @@ export type AttemptFailedInput = z.infer<typeof attemptFailedSchema>;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const orderInclude = {
+  users_orders_buyer_id_client_idTousers: {
+    select: { id: true, full_name: true, email: true, phone: true },
+  },
+  // Un cobro registrado deja el pago marcado con el repartidor que lo tomó.
+  payments: {
+    where: { collected_at: { not: null } },
+    select: { id: true },
+  },
   order_items: {
     select: {
       id: true,
@@ -56,6 +65,24 @@ const orderInclude = {
       unit_price: true,
       subtotal: true,
     },
+  },
+} as const;
+
+// El historial solo se carga en el detalle: la bandeja no lo muestra y sería
+// una lectura extra por cada pedido de la lista.
+const orderDetailInclude = {
+  ...orderInclude,
+  order_state_history: {
+    select: {
+      id: true,
+      state_dimension: true,
+      previous_value: true,
+      new_value: true,
+      changed_by_actor_type: true,
+      reason: true,
+      occurred_at: true,
+    },
+    orderBy: { occurred_at: 'desc' as const },
   },
 } as const;
 
@@ -83,6 +110,22 @@ function serializeOrder(o: {
   delivery_address_latitude: unknown;
   delivery_address_longitude: unknown;
   delivery_instructions: string | null;
+  users_orders_buyer_id_client_idTousers: {
+    id: bigint;
+    full_name: string | null;
+    email: string;
+    phone: string | null;
+  };
+  payments: { id: bigint }[];
+  order_state_history?: {
+    id: bigint;
+    state_dimension: string;
+    previous_value: string | null;
+    new_value: string;
+    changed_by_actor_type: string | null;
+    reason: string | null;
+    occurred_at: Date;
+  }[];
   pickup_point_id: bigint | null;
   subtotal: unknown;
   tax: unknown;
@@ -132,10 +175,33 @@ function serializeOrder(o: {
             postal_code: o.delivery_address_postal_code,
             latitude: o.delivery_address_latitude ? Number(o.delivery_address_latitude) : null,
             longitude: o.delivery_address_longitude ? Number(o.delivery_address_longitude) : null,
-            instructions: o.delivery_instructions,
+            instructions: readableInstructions(o.delivery_instructions),
           }
         : null,
+    buyer: {
+      id: Number(o.users_orders_buyer_id_client_idTousers.id),
+      name:
+        o.users_orders_buyer_id_client_idTousers.full_name ??
+        o.users_orders_buyer_id_client_idTousers.email,
+      phone: o.users_orders_buyer_id_client_idTousers.phone,
+    },
+    // Plano para la bandeja, que muestra una línea por pedido y no el objeto.
+    buyer_name:
+      o.users_orders_buyer_id_client_idTousers.full_name ??
+      o.users_orders_buyer_id_client_idTousers.email,
+    // El repartidor no puede marcar entregado un pedido contra entrega sin
+    // haber registrado antes el cobro; esta bandera es la que habilita el paso.
+    collection_recorded: o.payments.length > 0,
     pickup_point_id: o.pickup_point_id ? Number(o.pickup_point_id) : null,
+    history: (o.order_state_history ?? []).map((h) => ({
+      id: Number(h.id),
+      state_dimension: h.state_dimension,
+      previous_value: h.previous_value,
+      new_value: h.new_value,
+      actor_type: h.changed_by_actor_type,
+      reason: h.reason,
+      occurred_at: h.occurred_at.toISOString(),
+    })),
     subtotal: Number(o.subtotal),
     tax: Number(o.tax),
     shipping_fee: Number(o.shipping_fee),
@@ -252,7 +318,7 @@ export const courierOpsService = {
     const order = await withTenantReadOnly(clientId, 'COURIER', (tx) =>
       tx.orders.findUnique({
         where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
-        include: orderInclude,
+        include: orderDetailInclude,
       }),
     );
 
