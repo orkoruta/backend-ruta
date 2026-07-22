@@ -50,8 +50,9 @@ import {
   processOrderExpiration,
   expireDraftOrders,
   expirePendingConfirmOrders,
-  resolveParamInt as resolveOrderParam,
 } from '../jobs/order_expiration.job.js';
+
+import { resolveParamInt as resolveOrderParam } from '../lib/parameter_resolver.js';
 
 import { processPaymentTimeout, timeoutPendingPayments } from '../jobs/payment_timeout.job.js';
 

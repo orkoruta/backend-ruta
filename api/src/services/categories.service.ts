@@ -53,6 +53,7 @@ function serializeCategory(row: CategoryRow) {
 export const categoriesService = {
   async list(clientId: number, query: CategoryListQuery) {
     const where = {
+      client_id: BigInt(clientId),
       ...(query.status ? { status: query.status } : {}),
     };
     const skip = (query.page - 1) * query.page_size;
@@ -70,7 +71,7 @@ export const categoriesService = {
     );
 
     return {
-      items: items.map(serializeCategory),
+      data: items.map(serializeCategory),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

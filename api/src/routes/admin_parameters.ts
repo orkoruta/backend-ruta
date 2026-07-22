@@ -49,17 +49,43 @@ function serializeParameter(p: {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const adminParametersService = {
+  /**
+   * Los defaults viven en `client_id = 0` y el Cliente solo tiene filas para lo
+   * que haya personalizado. Si se listaran únicamente las suyas, la pantalla
+   * saldría vacía hasta el primer cambio, así que aquí se combinan: el valor
+   * propio gana sobre el global y cada fila indica de dónde viene.
+   */
   async list(clientId: number, group?: string) {
-    const parameters = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
+    const where = group ? { parameter_key: { startsWith: `${group}.` } } : {};
+
+    const ownParameters = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
       tx.client_parameters.findMany({
-        where: {
-          client_id: BigInt(clientId),
-          ...(group ? { parameter_key: { startsWith: `${group}.` } } : {}),
-        },
+        where: { client_id: BigInt(clientId), ...where },
         orderBy: { parameter_key: 'asc' },
       }),
     );
-    return parameters.map(serializeParameter);
+
+    // El Cliente plataforma ya está viendo los globales: no hay nada que heredar.
+    if (clientId === 0) {
+      return ownParameters.map((p) => ({ ...serializeParameter(p), source: 'CLIENT' as const }));
+    }
+
+    const globalParameters = await withTenantReadOnly(0, 'ADMIN_RUTA', (tx) =>
+      tx.client_parameters.findMany({
+        where: { client_id: BigInt(0), ...where },
+        orderBy: { parameter_key: 'asc' },
+      }),
+    );
+
+    const ownByKey = new Map(ownParameters.map((p) => [p.parameter_key, p]));
+
+    const inherited = globalParameters
+      .filter((g) => !ownByKey.has(g.parameter_key))
+      .map((g) => ({ ...serializeParameter(g), client_id: clientId, source: 'GLOBAL' as const }));
+
+    const own = ownParameters.map((p) => ({ ...serializeParameter(p), source: 'CLIENT' as const }));
+
+    return [...own, ...inherited].sort((a, b) => a.parameter_key.localeCompare(b.parameter_key));
   },
 
   async upsert(clientId: number, key: string, value: string) {

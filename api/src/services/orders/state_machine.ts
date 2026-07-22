@@ -15,11 +15,13 @@ export interface TransitionContext {
   deliveryType?: string;
   deliveryCarrierType?: string;
   clientType?: string;
+  buyerType?: string;
 }
 
 interface TransitionRule {
   actors: TransitionActor[];
-  condition?: (ctx: TransitionContext) => boolean;
+  /** Recibe el actor para reglas que solo aplican a parte de `actors`. */
+  condition?: (ctx: TransitionContext, actor: TransitionActor) => boolean;
 }
 
 type TransitionMap = Map<OrderStatus, Map<OrderStatus, TransitionRule>>;
@@ -40,12 +42,21 @@ function buildTransitions(): TransitionMap {
   // ── FLUJO 1 — Creación y decisión de pago ───────────────────────────
 
   // DRAFT
-  addRule(m, OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, { actors: ['BUYER'] });
+  // Flujo 6: el pedido corporativo lo registra el Cliente, no el comprador
+  // (que no usa la tienda), así que el Cliente también puede confirmarlo.
+  // El carrito de un comprador individual sigue siendo solo suyo.
+  addRule(m, OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, {
+    actors: ['BUYER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT'],
+    condition: (ctx, actor) => actor === 'BUYER' || ctx.buyerType === 'CORPORATE',
+  });
   addRule(m, OrderStatus.DRAFT, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.DRAFT, OrderStatus.EXPIRED, { actors: ['SYSTEM'] });
 
   // PENDING_CONFIRM
-  addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, { actors: ['BUYER'] });
+  addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, {
+    actors: ['BUYER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT'],
+    condition: (ctx, actor) => actor === 'BUYER' || ctx.buyerType === 'CORPORATE',
+  });
   addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.EXPIRED, { actors: ['SYSTEM'] });
 
@@ -425,7 +436,7 @@ export function canTransition(
   const rule = toMap.get(to);
   if (!rule) return false;
   if (!rule.actors.includes(actor)) return false;
-  if (rule.condition && !rule.condition(ctx)) return false;
+  if (rule.condition && !rule.condition(ctx, actor)) return false;
   return true;
 }
 

@@ -42,6 +42,7 @@ import { adminRecurrenceRouter } from './routes/admin_recurrence.js'; // F3.B4-B
 import { adminCorporateOrdersRouter } from './routes/admin_corporate_orders.js'; // F3.B5-BACK-1
 import { adminApiKeysRouter } from './routes/admin_api_keys.js'; // F2.BACK-1
 import { apiClientOrdersRouter } from './routes/api_client_orders.js'; // F2.BACK-4
+import { createGeocodingRouter } from './routes/geocoding.js';
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -85,8 +86,10 @@ app.use('/buyer/orders', buyerOrdersRouter); // 2.BACK-1
 app.use('/buyer', buyerPaymentRouter); // 2.BACK-3
 app.use('/admin/pickup-points', adminPickupPointsRouter); // 4.FIX-1
 app.use('/admin', createAdminPickupOpsRouter()); // 4.BACK-1
-app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
+// Debe ir antes de adminOrdersRouter: su ruta literal /orders/map
+// quedaría capturada por el /:id genérico de 2.BACK-2.
 app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
+app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
 app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
 app.use('/courier', courierCollectionRouter); // 3.BACK-3 COD collection
 app.use('/admin/parameters', createAdminParametersRouter()); // 5.BACK-34
@@ -107,6 +110,7 @@ app.use('/buyer/orders', buyerOrderRecurrenceRouter); // F3.B4-BACK-1 (POST /:id
 app.use('/admin/recurrence', adminRecurrenceRouter); // F3.B4-BACK-1
 app.use('/admin/orders', adminCorporateOrdersRouter); // F3.B5-BACK-1
 app.use('/admin/api-keys', adminApiKeysRouter); // F2.BACK-1
+app.use('/geocode', createGeocodingRouter());
 
 // 404 handler
 app.use((_req, res) => {

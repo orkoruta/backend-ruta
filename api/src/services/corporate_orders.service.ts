@@ -19,50 +19,36 @@
  */
 
 import { z } from 'zod';
-import { withTenant, withTenantReadOnly } from '@orkoruta/db';
-import { RecurrencePeriodicity } from '@orkoruta/shared';
+import { withTenant, withTenantReadOnly, type TenantTransactionClient } from '@orkoruta/db';
+import {
+  OrderStatus,
+  PaymentStatus,
+  RecurrencePeriodicity,
+  createCorporateOrderSchema,
+  createCorporateOrderRecurringSchema,
+} from '@orkoruta/shared';
+import { assertTransition, type TransitionActor } from './orders/state_machine.js';
+import { processOrderValidation } from './orders/validation.service.js';
 import { HttpError } from '../lib/http_error.js';
 import { logger } from '../lib/logger.js';
 import { recurrenceService } from './recurrence.service.js';
+
 import type { AuthenticatedUser } from '../middleware/auth.js';
+function toTransitionActor(userType: string): TransitionActor {
+  if (userType === 'ADMIN_RUTA') return 'ADMIN_RUTA';
+  if (userType === 'OPERATOR_CLIENT') return 'OPERATOR_CLIENT';
+  return 'ADMIN_CLIENT';
+}
+
 
 // ── Schemas locales ───────────────────────────────────────────────────────────
 
-const corporateContactSchema = z.object({
-  name: z.string().min(1, 'El nombre del contacto es requerido'),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-});
-
-export const createCorporateOrderSchema = z.object({
-  buyer_id: z.number().int().positive().optional(),
-  corporate_contact: corporateContactSchema,
-  items: z.array(
-    z.object({
-      product_id: z.number().int().positive(),
-      quantity: z.number().int().positive(),
-    }),
-  ).min(1, 'Se requiere al menos un ítem'),
-  delivery_type: z.enum(['SHIP', 'PICKUP']),
-  payment_method: z.enum(['ONLINE_AT_ORDER', 'ELECTRONIC_ON_DELIVERY', 'CASH_ON_DELIVERY']),
-  payment_method_submethod: z.enum(['DATAFONO', 'BANK_TRANSFER', 'PAYMENT_LINK', 'QR']).optional(),
-  notes: z.string().optional(),
-});
-
-export const createCorporateOrderRecurringSchema = createCorporateOrderSchema.extend({
-  recurrence_periodicity: z.nativeEnum(RecurrencePeriodicity, {
-    required_error: 'recurrence_periodicity es requerido para pedidos recurrentes',
-  }),
-  custom_interval_days: z.number().int().positive().optional(),
-}).refine(
-  (data) =>
-    data.recurrence_periodicity !== RecurrencePeriodicity.CUSTOM_INTERVAL ||
-    data.custom_interval_days !== undefined,
-  {
-    message: 'custom_interval_days es requerido cuando periodicity es CUSTOM_INTERVAL',
-    path: ['custom_interval_days'],
-  },
-);
+// Los schemas viven en @orkoruta/shared (regla 8.7); aquí solo se re-exportan
+// para que las rutas los consuman desde un único sitio.
+export {
+  createCorporateOrderSchema,
+  createCorporateOrderRecurringSchema,
+} from '@orkoruta/shared';
 
 export type CreateCorporateOrderInput = z.infer<typeof createCorporateOrderSchema>;
 export type CreateCorporateOrderRecurringInput = z.infer<typeof createCorporateOrderRecurringSchema>;
@@ -183,6 +169,136 @@ const corporateOrderInclude = {
   },
 } as const;
 
+/**
+ * Mapea el destino de entrega a columnas de `orders`.
+ * En SHIP van dirección y coordenadas (sin ellas el pedido no llega al mapa de
+ * asignación); en PICKUP va el punto físico.
+ */
+function deliveryTargetData(input: CreateCorporateOrderInput) {
+  if (input.delivery_type === 'PICKUP') {
+    return { pickup_point_id: BigInt(input.pickup_point_id!) };
+  }
+
+  const addr = input.delivery_address!;
+  return {
+    delivery_address_line: addr.line,
+    delivery_address_city: addr.city,
+    delivery_address_state: addr.state,
+    delivery_address_country: addr.country,
+    delivery_address_postal_code: addr.postal_code ?? null,
+    delivery_address_latitude: addr.latitude,
+    delivery_address_longitude: addr.longitude,
+  };
+}
+
+/** El punto de recogida debe existir, estar activo y ser del propio Cliente. */
+async function assertPickupPointBelongsToClient(
+  tx: TenantTransactionClient,
+  clientId: number,
+  pickupPointId: number,
+): Promise<void> {
+  const point = await tx.pickup_points.findFirst({
+    where: {
+      id: BigInt(pickupPointId),
+      client_id: BigInt(clientId),
+      status: 'ACTIVE',
+    },
+    select: { id: true },
+  });
+
+  if (!point) {
+    throw new HttpError(422, 'VALIDATION_ERROR', 'El punto de recogida no existe o está inactivo');
+  }
+}
+
+/**
+ * Lleva un pedido corporativo recién creado de DRAFT hasta PREPARING.
+ *
+ * El Cliente registra el pedido él mismo, así que confirmar, validar y aceptar
+ * son trámites que ya dio por hechos al crearlo: sin esto el pedido se quedaba
+ * en borrador esperando acciones que nadie iba a dar.
+ *
+ * Cada salto pasa por el state machine (regla 4.8), de modo que
+ * `order_state_history` queda completo y auditable.
+ *
+ * Dos frenos deliberados:
+ *  - Con pago online el pedido se detiene en ORDER_SUBMITTED: no se prepara
+ *    comida que aún no está pagada.
+ *  - Si la validación manda a MANUAL_REVIEW (producto inactivo o el parámetro
+ *    `order.force_manual_review`), se respeta y no se sigue avanzando.
+ */
+async function advanceCorporateOrderToPreparing(
+  clientId: number,
+  orderId: number,
+  actor: AuthenticatedUser,
+  paymentMethod: string,
+): Promise<void> {
+  const transitionActor = toTransitionActor(actor.user_type);
+  const ctx = { buyerType: 'CORPORATE' };
+  const key = { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } };
+
+  const paymentStatus =
+    paymentMethod === 'ONLINE_AT_ORDER'
+      ? PaymentStatus.PENDING_ONLINE_PAYMENT
+      : PaymentStatus.PENDING_COLLECTION;
+
+  // DRAFT → PENDING_CONFIRM → ORDER_SUBMITTED
+  await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+    assertTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, transitionActor, ctx);
+    assertTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, transitionActor, ctx);
+    await tx.orders.update({
+      where: key,
+      data: {
+        order_status: OrderStatus.ORDER_SUBMITTED,
+        payment_status: paymentStatus,
+        submitted_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+  });
+
+  if (paymentStatus === PaymentStatus.PENDING_ONLINE_PAYMENT) {
+    logger.info({ clientId, orderId }, 'Corporate order awaits online payment before preparing');
+    return;
+  }
+
+  // ORDER_SUBMITTED → ORDER_VALIDATING, y la validación decide el siguiente estado.
+  await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+    assertTransition(OrderStatus.ORDER_SUBMITTED, OrderStatus.ORDER_VALIDATING, 'SYSTEM');
+    await tx.orders.update({
+      where: key,
+      data: { order_status: OrderStatus.ORDER_VALIDATING, updated_at: new Date() },
+    });
+  });
+
+  const outcome = await processOrderValidation(orderId, clientId);
+  if (outcome !== 'VALIDATION_APPROVED') {
+    logger.info({ clientId, orderId, outcome }, 'Corporate order needs manual review');
+    return;
+  }
+
+  // VALIDATION_APPROVED → SELLER_CONFIRMED → PREPARING
+  await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+    assertTransition(
+      OrderStatus.VALIDATION_APPROVED,
+      OrderStatus.SELLER_CONFIRMED,
+      transitionActor,
+    );
+    await tx.orders.update({
+      where: key,
+      data: { order_status: OrderStatus.SELLER_CONFIRMED, updated_at: new Date() },
+    });
+
+    assertTransition(OrderStatus.SELLER_CONFIRMED, OrderStatus.PREPARING, transitionActor);
+    await tx.orders.update({
+      where: key,
+      data: { order_status: OrderStatus.PREPARING, updated_at: new Date() },
+    });
+  });
+
+  logger.info({ clientId, orderId }, 'Corporate order advanced to PREPARING on creation');
+}
+
 // ── Servicio ──────────────────────────────────────────────────────────────────
 
 export const corporateOrdersService = {
@@ -211,9 +327,14 @@ export const corporateOrdersService = {
 
     const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
       // Verificar que todos los productos existen y están activos
+      if (input.delivery_type === 'PICKUP') {
+        await assertPickupPointBelongsToClient(tx, clientId, input.pickup_point_id!);
+      }
+
       const productIds = input.items.map((i) => BigInt(i.product_id));
       const products = await tx.products.findMany({
         where: {
+          client_id: BigInt(clientId),
           id: { in: productIds },
           status: 'ACTIVE',
         },
@@ -266,6 +387,7 @@ export const corporateOrdersService = {
           total: subtotal,
           currency: 'COP',
           delivery_instructions: deliveryInstructions,
+          ...deliveryTargetData(input),
           order_items: { create: items },
         },
         include: {
@@ -318,7 +440,29 @@ export const corporateOrdersService = {
       return created;
     });
 
-    return serializeOrder(order);
+    await advanceCorporateOrderToPreparing(clientId, Number(order.id), actor, input.payment_method);
+
+    return serializeOrder(
+      await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
+        tx.orders.findUniqueOrThrow({
+          where: { id_client_id: { id: order.id, client_id: BigInt(clientId) } },
+          include: {
+            ...corporateOrderInclude,
+            order_items: {
+              select: {
+                id: true,
+                product_id: true,
+                product_name: true,
+                sku: true,
+                quantity: true,
+                unit_price: true,
+                subtotal: true,
+              },
+            },
+          },
+        }),
+      ),
+    );
   },
 
   /**

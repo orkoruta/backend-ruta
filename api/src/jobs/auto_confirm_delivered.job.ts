@@ -3,7 +3,7 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { OrderStatus } from '@orkoruta/shared';
 import { logger } from '../lib/logger.js';
 import { assertTransition } from '../services/orders/state_machine.js';
-import { resolveParamInt } from './order_expiration.job.js';
+import { resolveParamInt } from '../lib/parameter_resolver.js';
 
 export const AUTO_CONFIRM_DELIVERED_JOB = 'auto_confirm_delivered';
 const CRON = '0 * * * *';

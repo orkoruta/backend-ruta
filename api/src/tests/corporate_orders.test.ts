@@ -138,6 +138,14 @@ const validCorporateOrderBody = {
   corporate_contact: { name: 'Empresa XYZ', email: 'contacto@xyz.com' },
   items: [{ product_id: 10, quantity: 3 }],
   delivery_type: 'SHIP',
+  delivery_address: {
+    line: 'Cra 7 #140-20',
+    city: 'Bogotá',
+    state: 'Cundinamarca',
+    country: 'CO',
+    latitude: 4.728,
+    longitude: -74.045,
+  },
   payment_method: 'CASH_ON_DELIVERY',
 };
 
@@ -310,6 +318,14 @@ describe('CO6 — createCorporateOrder sin buyer_id (contacto ad-hoc) → DRAFT 
       corporate_contact: { name: 'Contacto Ad-hoc', phone: '3001234567' },
       items: [{ product_id: 10, quantity: 3 }],
       delivery_type: 'SHIP',
+  delivery_address: {
+    line: 'Cra 7 #140-20',
+    city: 'Bogotá',
+    state: 'Cundinamarca',
+    country: 'CO',
+    latitude: 4.728,
+    longitude: -74.045,
+  },
       payment_method: 'CASH_ON_DELIVERY',
       // buyer_id omitido intencionalmente
     };
@@ -347,6 +363,14 @@ describe('CO6 — createCorporateOrder sin buyer_id (contacto ad-hoc) → DRAFT 
       corporate_contact: { name: 'Contacto Ad-hoc', phone: '3001234567' },
       items: [{ product_id: 10, quantity: 3 }],
       delivery_type: 'SHIP',
+      delivery_address: {
+        line: 'Cra 7 #140-20',
+        city: 'Bogotá',
+        state: 'Cundinamarca',
+        country: 'CO',
+        latitude: 4.728,
+        longitude: -74.045,
+      },
       payment_method: 'CASH_ON_DELIVERY',
     };
 

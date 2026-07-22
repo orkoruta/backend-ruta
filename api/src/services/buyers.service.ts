@@ -105,6 +105,7 @@ const buyerInclude = {
 export const buyersService = {
   async list(clientId: number, query: BuyerListQuery) {
     const where = {
+      client_id: BigInt(clientId),
       user_type: 'BUYER',
       ...(query.status ? { status: query.status } : {}),
       ...(query.q
@@ -133,7 +134,7 @@ export const buyersService = {
     );
 
     return {
-      items: items.map(serializeBuyer),
+      data: items.map(serializeBuyer),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

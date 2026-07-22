@@ -6,7 +6,7 @@ import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { requireAdminClient } from '../middleware/auth.js';
 import { HttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
-import { assertTransition } from '../services/orders/state_machine.js';
+import { assertTransition, canTransition } from '../services/orders/state_machine.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
@@ -63,6 +63,10 @@ const rejectOrderSchema = z.object({
 
 const markReadySchema = z.object({
   delivery_carrier_type: z.enum(['OWN_FLEET', 'EXTERNAL_COURIER']).optional(),
+});
+
+const cancelOrderBodySchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
 });
 
 const rejectCancelRequestBodySchema = z.object({
@@ -124,6 +128,33 @@ const orderInclude = {
       subtotal: true,
     },
   },
+  users_orders_buyer_id_client_idTousers: {
+    select: { id: true, full_name: true, email: true, phone: true },
+  },
+  users_orders_courier_user_id_client_idTousers: {
+    select: { id: true, full_name: true, phone: true },
+  },
+  pickup_points: {
+    select: { id: true, name: true },
+  },
+} as const;
+
+// El historial solo se carga en el detalle: en el listado sería una lectura
+// por fila que la tabla no muestra.
+const orderDetailInclude = {
+  ...orderInclude,
+  order_state_history: {
+    select: {
+      id: true,
+      state_dimension: true,
+      previous_value: true,
+      new_value: true,
+      changed_by_actor_type: true,
+      reason: true,
+      occurred_at: true,
+    },
+    orderBy: { occurred_at: 'desc' as const },
+  },
 } as const;
 
 function serializeOrder(o: {
@@ -133,12 +164,17 @@ function serializeOrder(o: {
   courier_user_id: bigint | null;
   order_status: string;
   payment_status: string;
+  order_origin: string;
+  buyer_type: string;
   delivery_type: string;
   delivery_carrier_type: string | null;
   payment_method: string;
   payment_method_submethod: string | null;
   closure_reason: string | null;
   subtotal: unknown;
+  tax: unknown;
+  shipping_fee: unknown;
+  discount: unknown;
   total: unknown;
   currency: string;
   created_at: Date;
@@ -162,20 +198,69 @@ function serializeOrder(o: {
     reason: string | null;
     occurred_at: Date;
   }[];
+  users_orders_buyer_id_client_idTousers: {
+    id: bigint;
+    full_name: string | null;
+    email: string;
+    phone: string | null;
+  };
+  users_orders_courier_user_id_client_idTousers: {
+    id: bigint;
+    full_name: string | null;
+    phone: string | null;
+  } | null;
+  delivery_address_line: string | null;
+  delivery_address_city: string | null;
+  delivery_address_state: string | null;
+  delivery_instructions: string | null;
+  pickup_points: { id: bigint; name: string } | null;
 }) {
+  const buyer = o.users_orders_buyer_id_client_idTousers;
+  const courier = o.users_orders_courier_user_id_client_idTousers;
+  // La UI muestra la dirección como una línea legible.
+  const deliveryAddress = o.delivery_address_line
+    ? [o.delivery_address_line, o.delivery_address_city, o.delivery_address_state]
+        .filter(Boolean)
+        .join(', ')
+    : null;
+
   return {
     id: Number(o.id),
     client_id: Number(o.client_id),
     buyer_id: Number(o.buyer_id),
     courier_user_id: o.courier_user_id ? Number(o.courier_user_id) : null,
+    buyer: {
+      id: Number(buyer.id),
+      name: buyer.full_name ?? buyer.email,
+      email: buyer.email,
+      phone: buyer.phone,
+    },
+    courier: courier
+      ? {
+          id: Number(courier.id),
+          name: courier.full_name ?? '',
+          phone: courier.phone,
+        }
+      : null,
+    // Planos para el listado, que muestra columnas en vez del objeto anidado.
+    buyer_name: buyer.full_name ?? buyer.email,
+    courier_name: courier ? courier.full_name : null,
+    delivery_address: deliveryAddress,
+    delivery_instructions: o.delivery_instructions,
+    pickup_point_name: o.pickup_points?.name ?? null,
     order_status: o.order_status,
     payment_status: o.payment_status,
+    order_origin: o.order_origin,
+    buyer_type: o.buyer_type,
     delivery_type: o.delivery_type,
     delivery_carrier_type: o.delivery_carrier_type,
     payment_method: o.payment_method,
     payment_method_submethod: o.payment_method_submethod,
     closure_reason: o.closure_reason,
     subtotal: Number(o.subtotal),
+    tax: Number(o.tax),
+    shipping_fee: Number(o.shipping_fee),
+    discount: Number(o.discount),
     total: Number(o.total),
     currency: o.currency,
     items: o.order_items.map((i) => ({
@@ -208,6 +293,7 @@ export const adminOrdersService = {
   async list(clientId: number, query: z.infer<typeof adminOrderListQuerySchema>) {
     const skip = (query.page - 1) * query.page_size;
     const where = {
+      client_id: BigInt(clientId),
       ...(query.status ? { order_status: query.status } : {}),
       ...(query.payment_status ? { payment_status: query.payment_status } : {}),
       ...(query.buyer_id ? { buyer_id: BigInt(query.buyer_id) } : {}),
@@ -245,10 +331,91 @@ export const adminOrdersService = {
     const order = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
       tx.orders.findUnique({
         where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
-        include: orderInclude,
+        include: orderDetailInclude,
       }),
     );
     if (!order) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+    return serializeOrder(order);
+  },
+
+  /**
+   * Confirma un pedido corporativo que el propio Cliente registró (Flujo 6).
+   * El comprador corporativo no usa la tienda, así que nadie más podría
+   * sacarlo de DRAFT y el pedido moriría por expiración.
+   */
+  async confirmCorporate(clientId: number, orderId: number, actor: AuthenticatedUser) {
+    await assertFullClient(clientId);
+    const transitionActor = toTransitionActor(actor.user_type);
+
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+
+      if (existing.buyer_type !== 'CORPORATE') {
+        throw new HttpError(
+          422,
+          'INVALID_STATE_TRANSITION',
+          'Solo el comprador puede confirmar un pedido no corporativo',
+        );
+      }
+
+      const ctx = { buyerType: existing.buyer_type };
+
+      // DRAFT → PENDING_CONFIRM → ORDER_SUBMITTED, atómico como en el lado comprador.
+      assertTransition(
+        existing.order_status as OrderStatus,
+        OrderStatus.PENDING_CONFIRM,
+        transitionActor,
+        ctx,
+      );
+      assertTransition(
+        OrderStatus.PENDING_CONFIRM,
+        OrderStatus.ORDER_SUBMITTED,
+        transitionActor,
+        ctx,
+      );
+
+      const paymentStatus =
+        existing.payment_method === 'ONLINE_AT_ORDER'
+          ? 'PENDING_ONLINE_PAYMENT'
+          : 'PENDING_COLLECTION';
+
+      const updated = await tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: {
+          order_status: OrderStatus.ORDER_SUBMITTED,
+          payment_status: paymentStatus,
+          submitted_at: new Date(),
+          updated_at: new Date(),
+        },
+        include: orderInclude,
+      });
+
+      await tx.audit_events.create({
+        data: {
+          client_id: BigInt(clientId),
+          actor_user_id: BigInt(actor.id),
+          actor_type: 'USER',
+          actor_role: actor.user_type,
+          action: 'CORPORATE_ORDER_CONFIRMED',
+          entity_type: 'order',
+          entity_id: existing.id,
+          result: 'SUCCESS',
+          metadata: { payment_method: existing.payment_method, payment_status: paymentStatus },
+        },
+      });
+
+      logger.info(
+        { clientId, orderId, actorId: actor.id, actorType: actor.user_type, paymentStatus },
+        'Corporate order confirmed by client',
+      );
+
+      return updated;
+    });
+
     return serializeOrder(order);
   },
 
@@ -287,6 +454,89 @@ export const adminOrdersService = {
         data: { order_status: OrderStatus.SELLER_CONFIRMED, updated_at: new Date() },
         include: orderInclude,
       });
+    });
+
+    return serializeOrder(order);
+  },
+
+  /**
+   * Cancelación por parte del Cliente (CANCELLED_BY_ADMIN → CLOSED).
+   *
+   * Algunos estados no cancelan directo y el flujo exige pasar antes por una
+   * retención: SHIPMENT_HOLD en la rama SHIP y PICKUP_POINT_ISSUE en PICKUP.
+   * Ese salto se hace aquí para que el operador no tenga que encadenarlo a mano.
+   */
+  async cancel(clientId: number, orderId: number, actor: AuthenticatedUser, reason?: string) {
+    await assertFullClient(clientId);
+    const transitionActor = toTransitionActor(actor.user_type);
+
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+
+      const currentStatus = existing.order_status as OrderStatus;
+
+      // Estado intermedio necesario, si lo hubiera.
+      const hop = [OrderStatus.SHIPMENT_HOLD, OrderStatus.PICKUP_POINT_ISSUE].find(
+        (candidate) =>
+          !canTransition(currentStatus, OrderStatus.CANCELLED_BY_ADMIN, transitionActor) &&
+          canTransition(currentStatus, candidate, transitionActor) &&
+          canTransition(candidate, OrderStatus.CANCELLED_BY_ADMIN, transitionActor),
+      );
+
+      if (hop) {
+        assertTransition(currentStatus, hop, transitionActor);
+        await tx.orders.update({
+          where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+          data: { order_status: hop, updated_at: new Date() },
+        });
+      }
+
+      const statusBeforeCancel = hop ?? currentStatus;
+      assertTransition(statusBeforeCancel, OrderStatus.CANCELLED_BY_ADMIN, transitionActor);
+      await tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { order_status: OrderStatus.CANCELLED_BY_ADMIN, updated_at: new Date() },
+      });
+
+      assertTransition(OrderStatus.CANCELLED_BY_ADMIN, OrderStatus.CLOSED, 'SYSTEM');
+      const closedOrder = await tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: {
+          order_status: OrderStatus.CLOSED,
+          closure_reason: OrderStatus.CANCELLED_BY_ADMIN,
+          closed_at: new Date(),
+          updated_at: new Date(),
+        },
+        include: orderInclude,
+      });
+
+      // La razón no tiene columna propia; queda en la auditoría, que es append-only.
+      await tx.audit_events.create({
+        data: {
+          client_id: BigInt(clientId),
+          actor_user_id: BigInt(actor.id),
+          actor_type: 'USER',
+          actor_role: actor.user_type,
+          action: 'ORDER_CANCELLED_BY_ADMIN',
+          entity_type: 'order',
+          entity_id: BigInt(orderId),
+          result: 'SUCCESS',
+          metadata: { reason: reason ?? null, from_status: currentStatus, via: hop ?? null },
+        },
+      });
+
+      await setRefundPendingIfPaid(tx, BigInt(orderId), BigInt(clientId), closedOrder.payment_status);
+
+      logger.info(
+        { clientId, orderId, actorId: actor.id, from: currentStatus, via: hop ?? null },
+        'Order cancelled by client staff',
+      );
+
+      return closedOrder;
     });
 
     return serializeOrder(order);
@@ -563,6 +813,27 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
   });
 
   // POST /admin/orders/:id/accept — ADMIN_CLIENT + ADMIN_RUTA (seller acceptance)
+  // POST /admin/orders/:id/confirm — envía un pedido corporativo en DRAFT (Flujo 6)
+  router.post('/:id/confirm', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await service.confirmCorporate(req.user!.client_id, id, req.user!));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/cancel — cancelación por el Cliente
+  router.post('/:id/cancel', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const { reason } = cancelOrderBodySchema.parse(req.body ?? {});
+      res.json(await service.cancel(req.user!.client_id, id, req.user!, reason));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/:id/accept', requireIdempotencyKey, requireAdminClient, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = orderIdParamsSchema.parse(req.params);

@@ -99,6 +99,14 @@ const corporateOrderBody = {
   corporate_contact: { name: 'Carlos Pérez', email: 'carlos@empresa.co', phone: '3001234567' },
   items: [{ product_id: 10, quantity: 2 }],
   delivery_type: 'SHIP',
+  delivery_address: {
+    line: 'Cra 7 #140-20',
+    city: 'Bogotá',
+    state: 'Cundinamarca',
+    country: 'CO',
+    latitude: 4.728,
+    longitude: -74.045,
+  },
   payment_method: 'CASH_ON_DELIVERY',
 };
 

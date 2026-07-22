@@ -82,6 +82,7 @@ const courierInclude = {
 export const couriersService = {
   async list(clientId: number, query: CourierListQuery) {
     const where = {
+      client_id: BigInt(clientId),
       user_type: 'COURIER',
       ...(query.status ? { status: query.status } : {}),
       ...(query.q
@@ -110,7 +111,7 @@ export const couriersService = {
     );
 
     return {
-      items: items.map(serializeCourier),
+      data: items.map(serializeCourier),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

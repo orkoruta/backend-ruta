@@ -137,7 +137,7 @@ describe('GET /admin/pickup-points', () => {
   it('200 — ADMIN_CLIENT can list pickup points', async () => {
     stubAdminClient();
     mockService.list.mockResolvedValue({
-      items: [BASE_PICKUP_POINT],
+      data: [BASE_PICKUP_POINT],
       pagination: { page: 1, page_size: 20, total: 1 },
     });
 
@@ -146,7 +146,7 @@ describe('GET /admin/pickup-points', () => {
       .set('Authorization', `Bearer ${ADMIN_TOKEN}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(1);
+    expect(res.body.data).toHaveLength(1);
     expect(res.body.pagination.total).toBe(1);
     expect(mockService.list).toHaveBeenCalledWith(7, expect.objectContaining({ page: 1, page_size: 20 }));
   });
@@ -180,7 +180,7 @@ describe('GET /admin/pickup-points', () => {
 
   it('200 — filters by status', async () => {
     stubAdminClient();
-    mockService.list.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+    mockService.list.mockResolvedValue({ data: [], pagination: { page: 1, page_size: 20, total: 0 } });
 
     const res = await request(app)
       .get('/admin/pickup-points?status=INACTIVE')

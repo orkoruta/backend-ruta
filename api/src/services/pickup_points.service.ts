@@ -124,6 +124,7 @@ async function auditPickupPointAction(
 export const pickupPointsService = {
   async list(clientId: number, query: PickupPointListQuery) {
     const where = {
+      client_id: BigInt(clientId),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search
         ? {
@@ -150,7 +151,7 @@ export const pickupPointsService = {
     );
 
     return {
-      items: items.map(serializePickupPoint),
+      data: items.map(serializePickupPoint),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

@@ -19,6 +19,12 @@ export const env = {
   WOMPI_PRIVATE_KEY: process.env.WOMPI_PRIVATE_KEY || '',
   WOMPI_WEBHOOK_SECRET: process.env.WOMPI_WEBHOOK_SECRET || '',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:3002,http://localhost:3003',
+  /**
+   * Clave de servidor para la Geocoding API. Va aquí y no en el frontend porque
+   * Google solo permite restringir las claves de web service por IP: expuesta en
+   * el navegador sería inacotable.
+   */
+  GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || '',
 } as const;
 
 export type Env = typeof env;

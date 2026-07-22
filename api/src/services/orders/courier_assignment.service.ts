@@ -6,10 +6,11 @@ import { assertTransition } from './state_machine.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 import type { TransitionActor } from './state_machine.js';
 import { logger } from '../../lib/logger.js';
+import { resolveParamInt } from '../../lib/parameter_resolver.js';
 import { processWebhookEvent } from '../webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
-// States that make a courier unavailable for assignment
+// Pedidos en curso que consumen capacidad del repartidor
 const COURIER_BUSY_STATUSES: string[] = [
   OrderStatus.COURIER_ASSIGNED,
   OrderStatus.SHIPPED,
@@ -17,6 +18,10 @@ const COURIER_BUSY_STATUSES: string[] = [
   OrderStatus.OUT_FOR_DELIVERY,
   OrderStatus.ARRIVED_AT_CUSTOMER,
 ];
+
+/** Cuántos pedidos simultáneos admite un repartidor. Configurable por Cliente. */
+const MAX_ORDERS_PARAM = 'limits.max_concurrent_orders_per_courier';
+const DEFAULT_MAX_ORDERS = 3;
 
 export const assignCourierSchema = z.object({
   courier_user_id: z.number().int().positive(),
@@ -84,6 +89,25 @@ export const courierAssignmentService = {
 
       if (courier.status !== 'ACTIVE') {
         throw new HttpError(422, 'VALIDATION_ERROR', 'El repartidor no está activo');
+      }
+
+      // El límite se valida aquí y no solo al listar: la UI filtra, pero la API
+      // es la que debe garantizar que no se sobrecargue a un repartidor.
+      const maxConcurrent = await resolveParamInt(clientId, MAX_ORDERS_PARAM, DEFAULT_MAX_ORDERS);
+      const activeOrders = await tx.orders.count({
+        where: {
+          client_id: BigInt(clientId),
+          courier_user_id: BigInt(courierUserId),
+          order_status: { in: COURIER_BUSY_STATUSES },
+        },
+      });
+
+      if (activeOrders >= maxConcurrent) {
+        throw new HttpError(
+          422,
+          'VALIDATION_ERROR',
+          `El repartidor ya tiene ${activeOrders} pedidos en curso (máximo ${maxConcurrent})`,
+        );
       }
 
       const result = await tx.orders.updateMany({
@@ -205,16 +229,14 @@ export const courierAssignmentService = {
   },
 
   async getAvailableCouriers(clientId: number) {
+    const maxConcurrent = await resolveParamInt(clientId, MAX_ORDERS_PARAM, DEFAULT_MAX_ORDERS);
+
     const couriers = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
       tx.users.findMany({
         where: {
+          client_id: BigInt(clientId),
           user_type: 'COURIER',
           status: 'ACTIVE',
-          orders_orders_courier_user_id_client_idTousers: {
-            none: {
-              order_status: { in: COURIER_BUSY_STATUSES },
-            },
-          },
         },
         select: {
           id: true,
@@ -223,24 +245,43 @@ export const courierAssignmentService = {
           email: true,
           phone: true,
           status: true,
+          _count: {
+            select: {
+              orders_orders_courier_user_id_client_idTousers: {
+                where: { order_status: { in: COURIER_BUSY_STATUSES } },
+              },
+            },
+          },
         },
       }),
     );
 
-    return couriers.map((c) => ({
-      id: Number(c.id),
-      client_id: Number(c.client_id),
-      full_name: c.full_name,
-      email: c.email,
-      phone: c.phone,
-      status: c.status,
-    }));
+    // Un repartidor puede llevar varios pedidos a la vez; solo desaparece de la
+    // lista cuando alcanza el máximo configurado por el Cliente.
+    return couriers
+      .map((c) => {
+        const activeOrders = c._count.orders_orders_courier_user_id_client_idTousers;
+        return {
+          id: Number(c.id),
+          client_id: Number(c.client_id),
+          full_name: c.full_name,
+          email: c.email,
+          phone: c.phone,
+          status: c.status,
+          active_orders: activeOrders,
+          max_concurrent_orders: maxConcurrent,
+          remaining_capacity: Math.max(0, maxConcurrent - activeOrders),
+        };
+      })
+      .filter((c) => c.remaining_capacity > 0)
+      .sort((a, b) => b.remaining_capacity - a.remaining_capacity);
   },
 
   async getOrdersForMap(clientId: number) {
     const orders = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
       tx.orders.findMany({
         where: {
+          client_id: BigInt(clientId),
           order_status: OrderStatus.AWAITING_COURIER_ASSIGNMENT,
           delivery_address_latitude: { not: null },
           delivery_address_longitude: { not: null },

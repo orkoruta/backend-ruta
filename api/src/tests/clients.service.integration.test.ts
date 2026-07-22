@@ -26,7 +26,7 @@ describeIntegration('clientsService integration', () => {
     expect(created.status).toBe('ACTIVE');
 
     const listed = await clientsService.list({ q: created.slug, page: 1, page_size: 10 });
-    expect(listed.items.some((client) => client.id === created.id)).toBe(true);
+    expect(listed.data.some((client) => client.id === created.id)).toBe(true);
 
     const updated = await clientsService.update(created.id, { name: `Ruta IT Updated ${suffix}` }, ctx);
     expect(updated.name).toBe(`Ruta IT Updated ${suffix}`);

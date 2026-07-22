@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@orkoruta/shared': link:../packages-ruta/shared
+  '@orkoruta/db': link:../packages-ruta/db
+  zod: link:../packages-ruta/shared/node_modules/zod
+
 importers:
 
   .:
@@ -22,11 +27,11 @@ importers:
         specifier: ^0.5.8
         version: 0.5.8(pino@9.14.0)
       '@orkoruta/db':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: link:../../packages-ruta/db
+        version: link:../../packages-ruta/db
       '@orkoruta/shared':
-        specifier: ^1.5.2
-        version: 1.5.2
+        specifier: link:../../packages-ruta/shared
+        version: link:../../packages-ruta/shared
       '@types/cors':
         specifier: ^2.8.19
         version: 2.8.19
@@ -61,8 +66,8 @@ importers:
         specifier: ^0.18.5
         version: 0.18.5
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: link:../../packages-ruta/shared/node_modules/zod
+        version: link:../../packages-ruta/shared/node_modules/zod
     devDependencies:
       '@types/express':
         specifier: ^4.17.21
@@ -458,12 +463,6 @@ packages:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
-  '@orkoruta/db@1.0.0':
-    resolution: {integrity: sha512-jJBk8Qz3vpHqhjgAavk0dfOEUtMPgVY+uIcdFYy8LKXN+eN01CCwyW6QHMLgC+HmiyhJyzwB7E17Ords2cCSLA==, tarball: https://npm.pkg.github.com/download/@orkoruta/db/1.0.0/d198f74a0a9a69a702f8dfdaef27cecda02421eb}
-
-  '@orkoruta/shared@1.5.2':
-    resolution: {integrity: sha512-mr4MKQ8KUlZwBCMk1TsypEttNlI0kedDNYp+cOhmFrTsOpbgP2G8D8Zqq06hOxDH8SkGEEYyjVf2pMoo2ZldUg==, tarball: https://npm.pkg.github.com/download/@orkoruta/shared/1.5.2/f052521ca7f6a8274b9aec047428a55e64275ee9}
-
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
 
@@ -477,15 +476,6 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
-
-  '@prisma/client@5.22.0':
-    resolution: {integrity: sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==}
-    engines: {node: '>=16.13'}
-    peerDependencies:
-      prisma: '*'
-    peerDependenciesMeta:
-      prisma:
-        optional: true
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     resolution: {integrity: sha512-F5QXMSiFebS9hKZj02XhWLLnRpJ3B3AROP0tWbFBSj+6kCbg5m9j5JoHKd4mmSVy5mS/IMQloYgYxCuJC0fxEQ==}
@@ -1742,9 +1732,6 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
 snapshots:
 
   '@ampproject/remapping@2.3.0':
@@ -1971,16 +1958,6 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
-  '@orkoruta/db@1.0.0':
-    dependencies:
-      '@prisma/client': 5.22.0
-    transitivePeerDependencies:
-      - prisma
-
-  '@orkoruta/shared@1.5.2':
-    dependencies:
-      zod: 3.25.76
-
   '@paralleldrive/cuid2@2.3.1':
     dependencies:
       '@noble/hashes': 1.8.0
@@ -1991,8 +1968,6 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
-
-  '@prisma/client@5.22.0': {}
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     optional: true
@@ -3290,5 +3265,3 @@ snapshots:
       word: 0.3.0
 
   xtend@4.0.2: {}
-
-  zod@3.25.76: {}

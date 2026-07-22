@@ -1,5 +1,12 @@
 packages:
   - 'api'
+overrides:
+  '@orkoruta/shared': 'link:../packages-ruta/shared'
+  '@orkoruta/db': 'link:../packages-ruta/db'
+  # Mientras shared se consuma por link, cada workspace instala su propia copia
+  # física de zod y `err instanceof ZodError` falla entre ellas: los errores de
+  # validación de schemas de shared caían al handler genérico como 500.
+  zod: 'link:../packages-ruta/shared/node_modules/zod'
 allowBuilds:
   '@phc/format': true
   '@prisma/client': true

@@ -126,7 +126,7 @@ solo ve su propia información.
 | Job manager | `pg-boss` | `ruta-backend` |
 | File storage | Por definir | — |
 | Pasarela de pagos | Wompi | externo |
-| Mapas | OpenStreetMap + Leaflet | en ambos frontends |
+| Mapas | Google Maps (JS API + Geocoding) | en ambos frontends |
 | Hosting | Render | externo |
 | Migraciones BD | `node-pg-migrate` + estado autoritativo SQL | `ruta-docs/bd/` |
 | Testing | Vitest + Supertest + Playwright + MSW | en cada repo |

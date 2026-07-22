@@ -30,8 +30,40 @@ describe('Flujo 1 — DRAFT', () => {
     expect(canTransition(OrderStatus.DRAFT, OrderStatus.EXPIRED, 'SYSTEM')).toBe(true);
   });
 
-  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] ❌ — solo BUYER puede confirmar desde DRAFT', () => {
+  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] sin contexto ❌ — el carrito es del comprador', () => {
     expect(canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'ADMIN_CLIENT')).toBe(false);
+  });
+
+  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] con buyer_type INDIVIDUAL ❌', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'ADMIN_CLIENT', {
+        buyerType: 'INDIVIDUAL',
+      }),
+    ).toBe(false);
+  });
+
+  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] con buyer_type CORPORATE ✅ — Flujo 6', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'ADMIN_CLIENT', {
+        buyerType: 'CORPORATE',
+      }),
+    ).toBe(true);
+  });
+
+  it('DRAFT → PENDING_CONFIRM [OPERATOR_CLIENT] con buyer_type CORPORATE ✅ — Flujo 6', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'OPERATOR_CLIENT', {
+        buyerType: 'CORPORATE',
+      }),
+    ).toBe(true);
+  });
+
+  it('DRAFT → PENDING_CONFIRM [COURIER] con buyer_type CORPORATE ❌ — actor fuera de la regla', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'COURIER', {
+        buyerType: 'CORPORATE',
+      }),
+    ).toBe(false);
   });
 
   it('DRAFT → DELIVERED [BUYER] ❌ — transición imposible', () => {
@@ -56,8 +88,16 @@ describe('Flujo 1 — PENDING_CONFIRM', () => {
     expect(canTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.EXPIRED, 'SYSTEM')).toBe(true);
   });
 
-  it('PENDING_CONFIRM → ORDER_SUBMITTED [ADMIN_CLIENT] ❌', () => {
+  it('PENDING_CONFIRM → ORDER_SUBMITTED [ADMIN_CLIENT] sin contexto ❌', () => {
     expect(canTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, 'ADMIN_CLIENT')).toBe(false);
+  });
+
+  it('PENDING_CONFIRM → ORDER_SUBMITTED [ADMIN_CLIENT] con buyer_type CORPORATE ✅ — Flujo 6', () => {
+    expect(
+      canTransition(OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, 'ADMIN_CLIENT', {
+        buyerType: 'CORPORATE',
+      }),
+    ).toBe(true);
   });
 });
 

@@ -136,7 +136,7 @@ export const clientsService = {
     ]));
 
     return {
-      items: items.map(serializeClient),
+      data: items.map(serializeClient),
       pagination: {
         page: query.page,
         page_size: query.page_size,

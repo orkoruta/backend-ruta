@@ -9,6 +9,8 @@ const mockOrdersUpdateMany = vi.fn();
 const mockOrdersFindMany = vi.fn();
 const mockUsersFindUnique = vi.fn();
 const mockUsersFindMany = vi.fn();
+const mockOrdersCount = vi.fn();
+const mockParamsFindUnique = vi.fn();
 
 vi.mock('@orkoruta/db', () => ({
   withTenant: vi.fn(
@@ -18,18 +20,21 @@ vi.mock('@orkoruta/db', () => ({
           findUnique: mockOrdersFindUnique,
           updateMany: mockOrdersUpdateMany,
           findMany: mockOrdersFindMany,
+          count: mockOrdersCount,
         },
         users: {
           findUnique: mockUsersFindUnique,
           findMany: mockUsersFindMany,
         },
+        client_parameters: { findUnique: mockParamsFindUnique },
       }),
   ),
   withTenantReadOnly: vi.fn(
     (_clientId: number, _role: string, fn: (tx: unknown) => unknown) =>
       fn({
-        orders: { findMany: mockOrdersFindMany },
+        orders: { findMany: mockOrdersFindMany, count: mockOrdersCount },
         users: { findMany: mockUsersFindMany },
+        client_parameters: { findUnique: mockParamsFindUnique },
       }),
   ),
 }));
@@ -178,6 +183,20 @@ describe('courierAssignmentService.assignCourier', () => {
       code: 'OPTIMISTIC_LOCK_FAILED',
     });
   });
+
+  it('422 — rechaza la asignación cuando el repartidor alcanzó su máximo', async () => {
+    mockOrdersFindUnique.mockResolvedValue(makeOrder(OrderStatus.AWAITING_COURIER_ASSIGNMENT));
+    mockUsersFindUnique.mockResolvedValue(makeCourier());
+    mockParamsFindUnique.mockResolvedValue({ parameter_value: '2' });
+    mockOrdersCount.mockResolvedValue(2);
+
+    await expect(
+      courierAssignmentService.assignCourier(CLIENT_ID, ORDER_ID, COURIER_USER_ID, actingAdmin),
+    ).rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+
+    // No debe tocar el pedido si el repartidor está lleno.
+    expect(mockOrdersUpdateMany).not.toHaveBeenCalled();
+  });
 });
 
 // ── unassignCourier ───────────────────────────────────────────────────────────
@@ -235,49 +254,68 @@ describe('courierAssignmentService.unassignCourier', () => {
 // ── getAvailableCouriers ──────────────────────────────────────────────────────
 
 describe('courierAssignmentService.getAvailableCouriers', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Sin fila de parámetro: cae al default de código (3 pedidos simultáneos).
+    mockParamsFindUnique.mockResolvedValue(null);
+  });
 
-  it('returns only ACTIVE couriers with no active delivery', async () => {
-    const rawCouriers = [
-      {
-        id: BigInt(99),
-        client_id: BigInt(CLIENT_ID),
-        full_name: 'Ana Repartidora',
-        email: 'ana@example.com',
-        phone: '+57 300 0000001',
-        status: 'ACTIVE',
-      },
-      {
-        id: BigInt(100),
-        client_id: BigInt(CLIENT_ID),
-        full_name: 'Carlos Mensajero',
-        email: 'carlos@example.com',
-        phone: '+57 300 0000002',
-        status: 'ACTIVE',
-      },
-    ];
+  function makeCourierRow(id: number, name: string, activeOrders: number) {
+    return {
+      id: BigInt(id),
+      client_id: BigInt(CLIENT_ID),
+      full_name: name,
+      email: `${name.split(' ')[0].toLowerCase()}@example.com`,
+      phone: '+57 300 0000000',
+      status: 'ACTIVE',
+      _count: { orders_orders_courier_user_id_client_idTousers: activeOrders },
+    };
+  }
 
-    mockUsersFindMany.mockResolvedValue(rawCouriers);
+  it('incluye repartidores con pedidos en curso mientras no lleguen al máximo', async () => {
+    mockUsersFindMany.mockResolvedValue([
+      makeCourierRow(99, 'Ana Repartidora', 1),
+      makeCourierRow(100, 'Carlos Mensajero', 0),
+    ]);
 
     const result = await courierAssignmentService.getAvailableCouriers(CLIENT_ID);
 
     expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(99);
-    expect(result[0].full_name).toBe('Ana Repartidora');
-    expect(result.every((c) => c.status === 'ACTIVE')).toBe(true);
-
-    expect(mockUsersFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          user_type: 'COURIER',
-          status: 'ACTIVE',
-          orders_orders_courier_user_id_client_idTousers: { none: expect.any(Object) },
-        }),
-      }),
-    );
+    // Se ordena por capacidad restante: primero quien está más libre.
+    expect(result[0].full_name).toBe('Carlos Mensajero');
+    expect(result[0].remaining_capacity).toBe(3);
+    expect(result[1].full_name).toBe('Ana Repartidora');
+    expect(result[1].active_orders).toBe(1);
+    expect(result[1].remaining_capacity).toBe(2);
   });
 
-  it('returns empty list when all couriers are busy', async () => {
+  it('excluye al repartidor que alcanzó el máximo', async () => {
+    mockUsersFindMany.mockResolvedValue([
+      makeCourierRow(99, 'Ana Repartidora', 3),
+      makeCourierRow(100, 'Carlos Mensajero', 2),
+    ]);
+
+    const result = await courierAssignmentService.getAvailableCouriers(CLIENT_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].full_name).toBe('Carlos Mensajero');
+  });
+
+  it('respeta el máximo configurado por el Cliente', async () => {
+    mockParamsFindUnique.mockResolvedValue({ parameter_value: '1' });
+    mockUsersFindMany.mockResolvedValue([
+      makeCourierRow(99, 'Ana Repartidora', 1),
+      makeCourierRow(100, 'Carlos Mensajero', 0),
+    ]);
+
+    const result = await courierAssignmentService.getAvailableCouriers(CLIENT_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].full_name).toBe('Carlos Mensajero');
+    expect(result[0].max_concurrent_orders).toBe(1);
+  });
+
+  it('devuelve lista vacía cuando no hay repartidores activos', async () => {
     mockUsersFindMany.mockResolvedValue([]);
 
     const result = await courierAssignmentService.getAvailableCouriers(CLIENT_ID);

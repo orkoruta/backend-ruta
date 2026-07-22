@@ -93,7 +93,7 @@ export const adminAuditService = {
     );
 
     return {
-      items: items.map(serializeAuditEvent),
+      data: items.map(serializeAuditEvent),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },
@@ -130,7 +130,7 @@ export const adminAuditService = {
     );
 
     return {
-      items: items.map(serializeAuditEvent),
+      data: items.map(serializeAuditEvent),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

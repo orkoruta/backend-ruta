@@ -3,6 +3,7 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { OrderStatus } from '@orkoruta/shared';
 import { assertTransition } from '../services/orders/state_machine.js';
 import { getParameterInt } from '../lib/parameter.js';
+import { resolveParamInt } from '../lib/parameter_resolver.js';
 import { logger } from '../lib/logger.js';
 
 export const PAYMENT_TIMEOUT_JOB = 'payment_timeout';
@@ -91,12 +92,3 @@ export async function timeoutPendingPayments(
 }
 
 // Looks up client-specific param first, then falls back to global (client_id=0) default.
-export async function resolveParamInt(
-  clientId: number,
-  key: string,
-  hardFallback: number,
-): Promise<number> {
-  const specific = await getParameterInt(clientId, key, 0);
-  if (specific > 0) return specific;
-  return getParameterInt(0, key, hardFallback);
-}

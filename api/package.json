@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --ignore \"**/node_modules/**\" --include \"src/**\" src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "start:worker": "node dist/index.worker.js",

@@ -81,7 +81,7 @@ function stubCourier() {
 const NOW = '2026-05-29T12:00:00.000Z';
 
 const AUDIT_EVENTS_PAGE = {
-  items: [
+  data: [
     {
       id: 1001,
       client_id: 1,
@@ -144,7 +144,7 @@ describe('GET /admin/audit-events', () => {
       .set('Authorization', 'Bearer admin-token');
 
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(1);
+    expect(res.body.data).toHaveLength(1);
     expect(res.body.pagination.total).toBe(1);
     expect(mockAdminAuditService.listForTenant).toHaveBeenCalledWith(
       1,
@@ -228,7 +228,7 @@ describe('GET /ruta-admin/audit-events', () => {
       .set('Authorization', 'Bearer ruta-token');
 
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(1);
+    expect(res.body.data).toHaveLength(1);
     expect(mockAdminAuditService.listGlobal).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, page_size: 20 }),
     );
@@ -237,7 +237,7 @@ describe('GET /ruta-admin/audit-events', () => {
   it('200 — client_id filter passed to service', async () => {
     stubAdminRuta();
     mockAdminAuditService.listGlobal.mockResolvedValue({
-      items: [],
+      data: [],
       pagination: { page: 1, page_size: 20, total: 0 },
     });
 

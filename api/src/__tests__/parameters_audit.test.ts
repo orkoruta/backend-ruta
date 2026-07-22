@@ -336,7 +336,7 @@ describe('GET /admin/audit-events (ADMIN_CLIENT)', () => {
   it('returns 200 with audit events for the tenant', async () => {
     stubAdminClient();
     const payload = {
-      items: [sampleAuditEvent],
+      data: [sampleAuditEvent],
       pagination: { page: 1, page_size: 20, total: 1 },
     };
     mockAuditService.listForTenant.mockResolvedValue(payload);
@@ -346,8 +346,8 @@ describe('GET /admin/audit-events (ADMIN_CLIENT)', () => {
       .set('Authorization', `Bearer ${ADMIN_TOKEN}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(1);
-    expect(res.body.items[0].action).toBe('PARAMETER_UPDATED');
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].action).toBe('PARAMETER_UPDATED');
     expect(res.body.pagination.total).toBe(1);
     expect(mockAuditService.listForTenant).toHaveBeenCalledWith(
       7,
@@ -357,7 +357,7 @@ describe('GET /admin/audit-events (ADMIN_CLIENT)', () => {
 
   it('passes entity_type filter', async () => {
     stubAdminClient();
-    mockAuditService.listForTenant.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+    mockAuditService.listForTenant.mockResolvedValue({ data: [], pagination: { page: 1, page_size: 20, total: 0 } });
 
     await request(auditApp)
       .get('/admin/audit-events?entity_type=orders')
@@ -371,7 +371,7 @@ describe('GET /admin/audit-events (ADMIN_CLIENT)', () => {
 
   it('passes date filters (from/to)', async () => {
     stubAdminClient();
-    mockAuditService.listForTenant.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+    mockAuditService.listForTenant.mockResolvedValue({ data: [], pagination: { page: 1, page_size: 20, total: 0 } });
 
     await request(auditApp)
       .get('/admin/audit-events?from=2026-01-01T00:00:00.000Z&to=2026-01-31T23:59:59.000Z')
@@ -399,7 +399,7 @@ describe('GET /admin/audit-events (ADMIN_CLIENT)', () => {
 
   it('respects pagination parameters', async () => {
     stubAdminClient();
-    mockAuditService.listForTenant.mockResolvedValue({ items: [], pagination: { page: 2, page_size: 10, total: 0 } });
+    mockAuditService.listForTenant.mockResolvedValue({ data: [], pagination: { page: 2, page_size: 10, total: 0 } });
 
     await request(auditApp)
       .get('/admin/audit-events?page=2&page_size=10')
@@ -439,7 +439,7 @@ describe('GET /ruta-admin/audit-events (ADMIN_RUTA)', () => {
   it('returns 200 with all-tenant events when no client_id filter', async () => {
     stubAdminRuta();
     const payload = {
-      items: [sampleAuditEvent, { ...sampleAuditEvent, id: 2, client_id: 8 }],
+      data: [sampleAuditEvent, { ...sampleAuditEvent, id: 2, client_id: 8 }],
       pagination: { page: 1, page_size: 20, total: 2 },
     };
     mockAuditService.listGlobal.mockResolvedValue(payload);
@@ -449,7 +449,7 @@ describe('GET /ruta-admin/audit-events (ADMIN_RUTA)', () => {
       .set('Authorization', `Bearer ${RUTA_TOKEN}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.items).toHaveLength(2);
+    expect(res.body.data).toHaveLength(2);
     expect(mockAuditService.listGlobal).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, page_size: 20 }),
     );
@@ -458,7 +458,7 @@ describe('GET /ruta-admin/audit-events (ADMIN_RUTA)', () => {
   it('filters by client_id when provided', async () => {
     stubAdminRuta();
     mockAuditService.listGlobal.mockResolvedValue({
-      items: [sampleAuditEvent],
+      data: [sampleAuditEvent],
       pagination: { page: 1, page_size: 20, total: 1 },
     });
 
@@ -473,7 +473,7 @@ describe('GET /ruta-admin/audit-events (ADMIN_RUTA)', () => {
 
   it('passes entity_type and date filters cross-tenant', async () => {
     stubAdminRuta();
-    mockAuditService.listGlobal.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+    mockAuditService.listGlobal.mockResolvedValue({ data: [], pagination: { page: 1, page_size: 20, total: 0 } });
 
     await request(auditApp)
       .get('/ruta-admin/audit-events?entity_type=client_parameters&from=2026-01-01T00:00:00.000Z')

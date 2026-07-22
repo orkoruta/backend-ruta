@@ -81,6 +81,7 @@ function mapPrismaError(error: unknown): never {
 export const productsService = {
   async list(clientId: number, query: ProductListQuery) {
     const where = {
+      client_id: BigInt(clientId),
       ...(query.status ? { status: query.status } : {}),
       ...(query.category_id ? { category_id: BigInt(query.category_id) } : {}),
       ...(query.q
@@ -108,7 +109,7 @@ export const productsService = {
     );
 
     return {
-      items: items.map(serializeProduct),
+      data: items.map(serializeProduct),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

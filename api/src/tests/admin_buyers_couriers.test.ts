@@ -41,7 +41,7 @@ const mockCourier = { id: 20, client_id: 1, email: 'courier@test.com', status: '
 
 function buyerServiceMock() {
   return {
-    list: vi.fn().mockResolvedValue({ items: [mockBuyer], pagination: { page: 1, page_size: 20, total: 1 } }),
+    list: vi.fn().mockResolvedValue({ data: [mockBuyer], pagination: { page: 1, page_size: 20, total: 1 } }),
     getById: vi.fn().mockResolvedValue(mockBuyer),
     create: vi.fn().mockResolvedValue(mockBuyer),
     update: vi.fn().mockResolvedValue(mockBuyer),
@@ -52,7 +52,7 @@ function buyerServiceMock() {
 
 function courierServiceMock() {
   return {
-    list: vi.fn().mockResolvedValue({ items: [mockCourier], pagination: { page: 1, page_size: 20, total: 1 } }),
+    list: vi.fn().mockResolvedValue({ data: [mockCourier], pagination: { page: 1, page_size: 20, total: 1 } }),
     getById: vi.fn().mockResolvedValue(mockCourier),
     create: vi.fn().mockResolvedValue(mockCourier),
     update: vi.fn().mockResolvedValue(mockCourier),
@@ -80,7 +80,7 @@ describe('admin buyers routes', () => {
     const res = await request(testBuyerApp(service, adminClient))
       .get('/admin/buyers?status=ACTIVE&page=1&page_size=10')
       .expect(200);
-    expect(res.body.items).toHaveLength(1);
+    expect(res.body.data).toHaveLength(1);
     expect(service.list).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'ACTIVE', page: 1, page_size: 10 }));
   });
 
@@ -142,7 +142,7 @@ describe('admin couriers routes', () => {
     const res = await request(testCourierApp(service, adminClient))
       .get('/admin/couriers?q=juan')
       .expect(200);
-    expect(res.body.items).toHaveLength(1);
+    expect(res.body.data).toHaveLength(1);
     expect(service.list).toHaveBeenCalledWith(1, expect.objectContaining({ q: 'juan' }));
   });
 
