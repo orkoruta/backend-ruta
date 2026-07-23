@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../lib/http_error.js';
+import { paymentConfigService } from '../services/payment_config.service.js';
 
 const slugParamsSchema = z.object({
   slug: z.string().min(1),
@@ -39,6 +40,12 @@ export function createPublicCatalogRouter(): Router {
       const { slug } = slugParamsSchema.parse(req.params);
       const client = await resolveClientBySlug(slug);
 
+      // El storefront usa esto para mostrar u ocultar "Pago online (Wompi)":
+      // solo aparece si el Cliente tiene su pasarela configurada y activa.
+      const onlinePaymentEnabled = await paymentConfigService.isOnlinePaymentEnabled(
+        Number(client.id),
+      );
+
       res.json({
         id: Number(client.id),
         name: client.name,
@@ -46,6 +53,7 @@ export function createPublicCatalogRouter(): Router {
         description: client.description,
         logo_url: client.logo_url,
         frontend_mode: client.frontend_mode,
+        online_payment_enabled: onlinePaymentEnabled,
       });
     } catch (error) {
       next(error);

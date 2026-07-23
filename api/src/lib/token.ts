@@ -20,12 +20,20 @@ export async function signAccessToken(payload: TokenPayload, lifetimeMinutes: nu
   };
   if (payload.impersonating !== undefined) claims.impersonating = payload.impersonating;
   if (payload.target_client_id !== undefined) claims.target_client_id = payload.target_client_id;
-  return new SignJWT(claims)
+
+  const builder = new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub)
-    .setIssuedAt()
-    .setExpirationTime(`${lifetimeMinutes}m`)
-    .sign(secret);
+    .setIssuedAt();
+
+  // `lifetimeMinutes <= 0` significa "sin expiración": el token no lleva claim
+  // `exp` y `jwtVerify` no lo caduca. Se usa para el repartidor, que trabaja en
+  // la calle y no debe perder sesión a mitad de una entrega.
+  if (lifetimeMinutes > 0) {
+    builder.setExpirationTime(`${lifetimeMinutes}m`);
+  }
+
+  return builder.sign(secret);
 }
 
 export async function verifyAccessToken(token: string): Promise<JWTPayload & TokenPayload> {

@@ -8,6 +8,12 @@ import type { AuthenticatedUser } from '../middleware/auth.js';
 
 type AuthService = typeof authService;
 
+const guestSchema = z.object({
+  client_slug: z.string().min(1),
+  full_name: z.string().min(1).max(200).optional(),
+  phone: z.string().min(1).max(50).optional(),
+});
+
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -81,6 +87,21 @@ export function createAuthRouter(service: AuthService = authService): Router {
       );
       setAuthCookies(res, result.accessToken, result.refreshToken);
       res.status(201).json(authResponse(result));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /auth/guest — inicia una sesión de invitado (sin cuenta) para pedir.
+  router.post('/guest', requireIdempotencyKey, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const input = guestSchema.parse(req.body);
+      const result = await service.startGuest(
+        { client_slug: input.client_slug, full_name: input.full_name, phone: input.phone },
+        requestContext(req),
+      );
+      setAuthCookies(res, result.accessToken, result.refreshToken);
+      res.status(201).json({ ...authResponse(result), is_guest: true });
     } catch (error) {
       next(error);
     }

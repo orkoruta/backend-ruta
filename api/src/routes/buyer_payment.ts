@@ -28,7 +28,9 @@ export function createBuyerPaymentRouter(service: PaymentsService = paymentsServ
         }
 
         const { id } = orderIdParamsSchema.parse(req.params);
-        const input = initiatePaymentSchema.parse(req.body);
+        // El frontend llama sin cuerpo (redirect_url es opcional); sin el `?? {}`
+        // el parse de `undefined` falla con "Required" y rompe el pago online.
+        const input = initiatePaymentSchema.parse(req.body ?? {});
 
         const result = await service.initiatePayment(id, req.user!, input.redirect_url);
         res.json(result);

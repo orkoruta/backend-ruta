@@ -14,7 +14,8 @@ interface RequestContext {
 interface LoginResult {
   accessToken: string;
   refreshToken: string;
-  expiresInSeconds: number;
+  /** `null` cuando el token no expira (p.ej. repartidor). */
+  expiresInSeconds: number | null;
   user: {
     id: number;
     client_id: number;
@@ -57,7 +58,10 @@ function defaultRefreshDaysForRole(userType: string): number {
 }
 
 function defaultJwtMinutesForRole(userType: string): number {
-  return userType === 'COURIER' ? 30 : 15;
+  // El repartidor no expira (0); el resto, 30 min. Este default solo aplica si
+  // no hay valor en client_parameters (`auth.jwt_lifetime_<rol>_minutes`), que
+  // gana sobre esto.
+  return userType === 'COURIER' ? 0 : 30;
 }
 
 async function buildLoginResult(
@@ -97,7 +101,8 @@ async function buildLoginResult(
   return {
     accessToken,
     refreshToken: raw,
-    expiresInSeconds: jwtMinutes * 60,
+    // `null` = el token no expira (jwtMinutes <= 0, p.ej. repartidor).
+    expiresInSeconds: jwtMinutes > 0 ? jwtMinutes * 60 : null,
     user: { id: uid, client_id: cid, user_type: userType, email },
   };
 }
@@ -156,6 +161,54 @@ export const authService = {
       }
       throw err;
     });
+
+    return buildLoginResult(user.id, user.client_id, 'BUYER', user.email, ctx);
+  },
+
+  /**
+   * Inicia una sesión de invitado: crea un comprador sin contraseña
+   * (`auth_mode = 'EXTERNAL_REFERENCE'`) y emite las cookies normales, de modo
+   * que todo el flujo de compra funciona igual que con una cuenta. El invitado
+   * se distingue por su `external_buyer_id` con prefijo `guest-`; el frontend
+   * usa eso (vía `/buyer/me`) para ocultarle "Mis pedidos" y la recurrencia.
+   */
+  async startGuest(
+    input: { client_slug: string; full_name?: string; phone?: string },
+    ctx: RequestContext,
+  ): Promise<LoginResult> {
+    const client = await withTenantReadOnly(0, 'ADMIN_RUTA', (tx) =>
+      tx.clients.findUnique({
+        where: { slug: input.client_slug },
+        select: { id: true, status: true, client_type: true },
+      }),
+    );
+
+    if (!client || client.status !== 'ACTIVE') {
+      throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Cliente no encontrado');
+    }
+    // El pedido como invitado es de storefront: solo aplica a Cliente Full.
+    if (client.client_type !== 'FULL') {
+      throw new HttpError(422, 'LOGISTICS_ONLY_FEATURE_UNAVAILABLE', 'Este cliente no acepta pedidos como invitado');
+    }
+
+    const token = globalThis.crypto.randomUUID();
+    const guestRef = `guest-${token}`;
+
+    const user = await withTenant(Number(client.id), 'ADMIN_CLIENT', (tx) =>
+      tx.users.create({
+        data: {
+          client_id: client.id,
+          user_type: 'BUYER',
+          // Email sintético único; el invitado nunca inicia sesión con él.
+          email: `${guestRef}@guest.ruta`,
+          auth_mode: 'EXTERNAL_REFERENCE',
+          external_buyer_id: guestRef,
+          full_name: input.full_name?.trim() || 'Invitado',
+          phone: input.phone?.trim() || null,
+          status: 'ACTIVE',
+        },
+      }),
+    );
 
     return buildLoginResult(user.id, user.client_id, 'BUYER', user.email, ctx);
   },

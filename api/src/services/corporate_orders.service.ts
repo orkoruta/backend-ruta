@@ -28,6 +28,7 @@ import {
   createCorporateOrderRecurringSchema,
 } from '@orkoruta/shared';
 import { assertTransition, type TransitionActor } from './orders/state_machine.js';
+import { toDbSubmethod, fromDbSubmethod } from './orders/payment_submethod.js';
 import { processOrderValidation } from './orders/validation.service.js';
 import { HttpError } from '../lib/http_error.js';
 import { logger } from '../lib/logger.js';
@@ -134,7 +135,7 @@ function serializeOrder(o: {
     order_origin: o.order_origin,
     buyer_type: o.buyer_type,
     payment_method: o.payment_method,
-    payment_method_submethod: o.payment_method_submethod,
+    payment_method_submethod: fromDbSubmethod(o.payment_method_submethod),
     delivery_type: o.delivery_type,
     delivery_carrier_type: o.delivery_carrier_type,
     subtotal: Number(o.subtotal),
@@ -387,7 +388,7 @@ export const corporateOrdersService = {
           refund_status: 'REFUND_NOT_REQUIRED',
           delivery_type: input.delivery_type,
           payment_method: input.payment_method,
-          payment_method_submethod: input.payment_method_submethod ?? null,
+          payment_method_submethod: toDbSubmethod(input.payment_method_submethod),
           buyer_type: 'CORPORATE',
           subtotal,
           total: subtotal,

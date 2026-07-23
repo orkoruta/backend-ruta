@@ -9,6 +9,7 @@ import { toApiError } from '../lib/errors.js';
 import { assertTransition, canTransition } from '../services/orders/state_machine.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import { collectionService } from '../services/orders/collection.service.js';
+import { fromDbSubmethod } from '../services/orders/payment_submethod.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
 import { logger } from '../lib/logger.js';
@@ -256,7 +257,7 @@ function serializeOrder(o: {
     delivery_type: o.delivery_type,
     delivery_carrier_type: o.delivery_carrier_type,
     payment_method: o.payment_method,
-    payment_method_submethod: o.payment_method_submethod,
+    payment_method_submethod: fromDbSubmethod(o.payment_method_submethod),
     closure_reason: o.closure_reason,
     subtotal: Number(o.subtotal),
     tax: Number(o.tax),
@@ -293,9 +294,20 @@ function serializeOrder(o: {
 export const adminOrdersService = {
   async list(clientId: number, query: z.infer<typeof adminOrderListQuerySchema>) {
     const skip = (query.page - 1) * query.page_size;
+
+    // Un DRAFT es el carrito del comprador, aún sin confirmar: no es un pedido
+    // para el Cliente y no debe aparecer en su panel. Aparece recién cuando el
+    // comprador confirma (DRAFT → PENDING_CONFIRM → …). Si la API pide DRAFT
+    // explícitamente, se devuelve vacío (`in: []`) en vez de exponerlo.
+    const statusFilter = query.status
+      ? query.status === OrderStatus.DRAFT
+        ? { in: [] as string[] }
+        : { equals: query.status }
+      : { not: OrderStatus.DRAFT };
+
     const where = {
       client_id: BigInt(clientId),
-      ...(query.status ? { order_status: query.status } : {}),
+      order_status: statusFilter,
       ...(query.payment_status ? { payment_status: query.payment_status } : {}),
       ...(query.buyer_id ? { buyer_id: BigInt(query.buyer_id) } : {}),
       ...(query.courier_id ? { courier_user_id: BigInt(query.courier_id) } : {}),

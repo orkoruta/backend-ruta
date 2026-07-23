@@ -9,6 +9,7 @@ import {
 } from '@orkoruta/shared';
 import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
+import { toDbSubmethod, fromDbSubmethod } from './payment_submethod.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 
 // requestCancelSchema no está en @orkoruta/shared@1.1.0; se define aquí
@@ -111,7 +112,7 @@ function serializeOrder(o: {
     delivery_type: o.delivery_type,
     delivery_carrier_type: o.delivery_carrier_type,
     payment_method: o.payment_method,
-    payment_method_submethod: o.payment_method_submethod,
+    payment_method_submethod: fromDbSubmethod(o.payment_method_submethod),
     buyer_type: o.buyer_type,
     closure_reason: o.closure_reason,
     delivery_address:
@@ -298,7 +299,7 @@ export const ordersService = {
           payment_status: paymentStatus,
           delivery_type: input.delivery_type,
           payment_method: input.payment_method,
-          payment_method_submethod: input.payment_method_submethod ?? null,
+          payment_method_submethod: toDbSubmethod(input.payment_method_submethod),
           delivery_address_line: addr?.line ?? null,
           delivery_address_city: addr?.city ?? null,
           delivery_address_state: addr?.state ?? null,

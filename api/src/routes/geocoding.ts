@@ -8,15 +8,22 @@ const geocodeQuerySchema = z.object({
   region: z.string().length(2).optional(),
 });
 
-/** Solo el personal del Cliente puede geocodificar: cada consulta cuesta dinero. */
-function requireStaff(req: Request, res: Response, next: NextFunction): void {
+/**
+ * Cada consulta a Google cuesta, así que se exige sesión: nunca queda abierto a
+ * internet. Además del personal del Cliente, el COMPRADOR puede geocodificar su
+ * propia dirección de entrega en el checkout — sin esto el mapa del storefront
+ * no ubica lo que el comprador escribe. El costo se acota con el debounce del
+ * frontend y la caché de 24 h del servicio.
+ */
+const GEOCODE_ROLES = new Set(['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'BUYER']);
+
+function requireGeocodeAccess(req: Request, res: Response, next: NextFunction): void {
   if (!req.user) {
     res.status(401).json(toApiError('AUTHENTICATION_REQUIRED', 'Autenticación requerida'));
     return;
   }
-  const { user_type } = req.user;
-  if (user_type !== 'ADMIN_CLIENT' && user_type !== 'OPERATOR_CLIENT' && user_type !== 'ADMIN_RUTA') {
-    res.status(403).json(toApiError('FORBIDDEN', 'Acceso restringido al personal del Cliente'));
+  if (!GEOCODE_ROLES.has(req.user.user_type)) {
+    res.status(403).json(toApiError('FORBIDDEN', 'Acceso restringido'));
     return;
   }
   next();
@@ -32,7 +39,7 @@ function requireStaff(req: Request, res: Response, next: NextFunction): void {
 export function createGeocodingRouter(service = geocodingService): Router {
   const router = Router();
 
-  router.get('/', requireStaff, async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/', requireGeocodeAccess, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { address, region } = geocodeQuerySchema.parse(req.query);
       const result = await service.geocode(address, region);

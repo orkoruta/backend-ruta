@@ -14,6 +14,8 @@ import { publicCatalogRouter } from './routes/public_catalog.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { webhooksRouter } from './routes/webhooks.js'; // 2.BACK-3
 import { buyerPaymentRouter } from './routes/buyer_payment.js'; // 2.BACK-3
+import { buyerProfileRouter } from './routes/buyer_profile.js';
+import { adminPaymentConfigRouter } from './routes/admin_payment_config.js';
 import { loggerMiddleware, logger } from './lib/logger.js';
 import { authenticate } from './middleware/auth.js';
 import { toApiError } from './lib/errors.js';
@@ -94,6 +96,7 @@ app.use('/admin/couriers', adminCouriersRouter);
 app.use('/uploads', uploadsRouter);
 app.use('/buyer/orders', buyerOrdersRouter); // 2.BACK-1
 app.use('/buyer', buyerPaymentRouter); // 2.BACK-3
+app.use('/buyer', buyerProfileRouter); // GET /buyer/me
 app.use('/admin/pickup-points', adminPickupPointsRouter); // 4.FIX-1
 app.use('/admin', createAdminPickupOpsRouter()); // 4.BACK-1
 // Debe ir antes de adminOrdersRouter: su ruta literal /orders/map
@@ -102,6 +105,7 @@ app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
 app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
 app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
 app.use('/courier', courierCollectionRouter); // 3.BACK-3 COD collection
+app.use('/admin/payment-providers', adminPaymentConfigRouter);
 app.use('/admin/parameters', createAdminParametersRouter()); // 5.BACK-34
 app.use('/admin/audit-events', createAdminAuditRouter()); // 5.BACK-34
 app.use('/ruta-admin/audit-events', createRutaAdminAuditRouter()); // 5.BACK-34

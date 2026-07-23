@@ -22,6 +22,7 @@ import { createApiClientOrder } from '../services/orders/orders.service.js';
 import { HttpError, sendHttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { assertTransition } from '../services/orders/state_machine.js';
+import { fromDbSubmethod } from '../services/orders/payment_submethod.js';
 import { logger } from '../lib/logger.js';
 import { processWebhookEvent } from '../services/webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../jobs/maintenance_boss.js';
@@ -125,7 +126,7 @@ function serializeOrder(o: {
     delivery_type: o.delivery_type,
     delivery_carrier_type: o.delivery_carrier_type,
     payment_method: o.payment_method,
-    payment_method_submethod: o.payment_method_submethod,
+    payment_method_submethod: fromDbSubmethod(o.payment_method_submethod),
     buyer_type: o.buyer_type,
     closure_reason: o.closure_reason,
     subtotal: Number(o.subtotal),
