@@ -25,6 +25,14 @@ export interface GeocodeResult {
   precision: GeocodePrecision;
   /** `true` cuando Google ubicó el predio y no solo la vía o el sector. */
   is_precise: boolean;
+  /** Código postal del punto, si Google lo conoce. `null` si no. */
+  postal_code: string | null;
+}
+
+interface GoogleAddressComponent {
+  long_name: string;
+  short_name: string;
+  types: string[];
 }
 
 interface GoogleGeocodeResponse {
@@ -32,11 +40,18 @@ interface GoogleGeocodeResponse {
   error_message?: string;
   results: Array<{
     formatted_address: string;
+    address_components?: GoogleAddressComponent[];
     geometry: {
       location: { lat: number; lng: number };
       location_type: GeocodePrecision;
     };
   }>;
+}
+
+/** Extrae el código postal de los componentes de dirección de Google. */
+function extractPostalCode(components?: GoogleAddressComponent[]): string | null {
+  const match = components?.find((c) => c.types.includes('postal_code'));
+  return match?.long_name ?? null;
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -128,6 +143,73 @@ export const geocodingService = {
       formatted_address: best.formatted_address,
       precision,
       is_precise: precision === 'ROOFTOP' || precision === 'RANGE_INTERPOLATED',
+      postal_code: extractPostalCode(best.address_components),
+    };
+
+    writeCache(key, result);
+    return result;
+  },
+
+  /**
+   * Geocodificación inversa: de coordenadas a dirección. Se usa cuando el
+   * comprador arrastra el pin en el mapa, para sacar el código postal del punto
+   * exacto donde lo dejó. Cachea por coordenada redondeada.
+   */
+  async reverseGeocode(lat: number, lng: number): Promise<GeocodeResult | null> {
+    if (!env.GOOGLE_MAPS_API_KEY) {
+      throw new HttpError(
+        502,
+        'EXTERNAL_SERVICE_ERROR',
+        'La geocodificación no está configurada en este entorno',
+      );
+    }
+
+    // Se redondea a ~11 m para que arrastres mínimos del pin reusen el caché.
+    const roundedLat = Number(lat.toFixed(4));
+    const roundedLng = Number(lng.toFixed(4));
+    const key = `reverse::${roundedLat},${roundedLng}`;
+    const cached = readCache(key);
+    if (cached) return cached.value;
+
+    const params = new URLSearchParams({
+      latlng: `${lat},${lng}`,
+      language: 'es',
+      key: env.GOOGLE_MAPS_API_KEY,
+    });
+
+    const res = await fetch(`${GOOGLE_GEOCODE_URL}?${params.toString()}`);
+    if (!res.ok) {
+      logger.error({ status: res.status }, 'reverse geocoding: Google respondió con error HTTP');
+      throw new HttpError(502, 'EXTERNAL_SERVICE_ERROR', 'El servicio de geocodificación no respondió');
+    }
+
+    const body = (await res.json()) as GoogleGeocodeResponse;
+
+    if (body.status === 'ZERO_RESULTS') {
+      writeCache(key, null);
+      return null;
+    }
+    if (body.status !== 'OK') {
+      logger.error({ status: body.status, error: body.error_message }, 'reverse geocoding: Google rechazó la consulta');
+      throw new HttpError(502, 'EXTERNAL_SERVICE_ERROR', 'El servicio de geocodificación falló');
+    }
+
+    // El primer resultado con código postal; si ninguno lo trae, el primero.
+    const withPostal = body.results.find((r) => extractPostalCode(r.address_components));
+    const best = withPostal ?? body.results[0];
+    if (!best) {
+      writeCache(key, null);
+      return null;
+    }
+
+    const precision = best.geometry.location_type;
+    const result: GeocodeResult = {
+      latitude: roundedLat,
+      longitude: roundedLng,
+      formatted_address: best.formatted_address,
+      precision,
+      is_precise: precision === 'ROOFTOP' || precision === 'RANGE_INTERPOLATED',
+      postal_code: extractPostalCode(best.address_components),
     };
 
     writeCache(key, result);

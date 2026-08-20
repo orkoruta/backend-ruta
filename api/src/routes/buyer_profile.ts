@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { toApiError } from '../lib/errors.js';
+import { isGuestBuyer } from '../lib/guest_buyer.js';
 import { HttpError } from '../lib/http_error.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
+import { updateBuyerProfileSchema } from '@orkoruta/shared';
 
 /**
  * Perfil del comprador autenticado. El contrato ya listaba `GET /buyer/me` pero
@@ -15,10 +17,12 @@ import { requireIdempotencyKey } from '../middleware/idempotency.js';
  * `guest-`. El storefront lo usa para ocultarle "Mis pedidos" y la recurrencia.
  */
 
-const updateProfileSchema = z.object({
-  full_name: z.string().trim().min(1).max(200).optional(),
-  phone: z.string().trim().min(1).max(50).optional(),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí con el nombre
+ * que ya usaba este módulo: una copia local puede divergir del contrato
+ * publicado, y varias divergían.
+ */
+const updateProfileSchema = updateBuyerProfileSchema;
 
 function requireBuyer(req: Request, res: Response, next: NextFunction): void {
   if (!req.user) {
@@ -30,10 +34,6 @@ function requireBuyer(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   next();
-}
-
-function isGuest(externalBuyerId: string | null): boolean {
-  return Boolean(externalBuyerId && externalBuyerId.startsWith('guest-'));
 }
 
 export function createBuyerProfileRouter(): Router {
@@ -63,7 +63,7 @@ export function createBuyerProfileRouter(): Router {
         full_name: user.full_name,
         email: user.email,
         phone: user.phone,
-        is_guest: isGuest(user.external_buyer_id),
+        is_guest: isGuestBuyer(user.external_buyer_id),
       });
     } catch (error) {
       next(error);
@@ -95,7 +95,7 @@ export function createBuyerProfileRouter(): Router {
         full_name: user.full_name,
         email: user.email,
         phone: user.phone,
-        is_guest: isGuest(user.external_buyer_id),
+        is_guest: isGuestBuyer(user.external_buyer_id),
       });
     } catch (error) {
       next(error);

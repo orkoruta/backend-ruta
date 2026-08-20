@@ -1,26 +1,25 @@
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { z } from 'zod';
-import { createCourierSchema, courierIdParamsSchema } from '@orkoruta/shared';
+import { createCourierSchema, courierIdParamsSchema,
+  updateCourierSchema,
+} from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import { hashPassword } from '../lib/password.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import { courierListQuerySchema } from '@orkoruta/shared';
 
-export const courierListQuerySchema = z.object({
-  q: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: antes había
+ * una copia local que podía divergir —y divergía— del contrato publicado.
+ */
+export { courierListQuerySchema };
 
-export const updateCourierSchema = z.object({
-  full_name: z.string().min(1).max(200).optional(),
-  phone: z.string().min(1).max(30).optional(),
-  document_type: z.string().min(1).max(10).optional(),
-  document_number: z.string().min(1).max(50).optional(),
-  transport_mode: z.string().optional(),
-  vehicle_plate: z.string().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']).optional(),
-});
+
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: una copia
+ * local puede divergir del contrato publicado, y esta divergía.
+ */
+export { updateCourierSchema };
 
 type CourierListQuery = z.infer<typeof courierListQuerySchema>;
 type CreateCourierInput = z.infer<typeof createCourierSchema>;

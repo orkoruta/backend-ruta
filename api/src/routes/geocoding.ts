@@ -8,6 +8,11 @@ const geocodeQuerySchema = z.object({
   region: z.string().length(2).optional(),
 });
 
+const reverseQuerySchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+});
+
 /**
  * Cada consulta a Google cuesta, así que se exige sesión: nunca queda abierto a
  * internet. Además del personal del Cliente, el COMPRADOR puede geocodificar su
@@ -43,6 +48,18 @@ export function createGeocodingRouter(service = geocodingService): Router {
     try {
       const { address, region } = geocodeQuerySchema.parse(req.query);
       const result = await service.geocode(address, region);
+      res.json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /geocode/reverse?lat=&lng= — coordenadas a dirección (para sacar el
+  // código postal del punto donde el comprador dejó el pin).
+  router.get('/reverse', requireGeocodeAccess, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { lat, lng } = reverseQuerySchema.parse(req.query);
+      const result = await service.reverseGeocode(lat, lng);
       res.json({ data: result });
     } catch (error) {
       next(error);

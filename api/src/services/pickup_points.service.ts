@@ -2,45 +2,24 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { z } from 'zod';
 import { HttpError } from '../lib/http_error.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import {
+  pickupPointListQuerySchema,
+  createPickupPointSchema,
+  updatePickupPointSchema,
+  pickupPointIdParamsSchema,
+} from '@orkoruta/shared';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
+//
+// Definidos en `@orkoruta/shared` (una sola vez) y reexportados aquí para no
+// tocar las rutas que ya los importaban de este módulo.
 
-export const pickupPointListQuerySchema = z.object({
-  search: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const createPickupPointSchema = z.object({
-  name: z.string().min(1).max(200),
-  address_line: z.string().min(1).max(500),
-  city: z.string().min(1).max(100).optional(),
-  state: z.string().min(1).max(100).optional(),
-  country: z.string().min(1).max(10).optional(),
-  postal_code: z.string().min(1).max(20).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  opening_hours: z.record(z.unknown()).optional(),
-  contact_phone: z.string().min(1).max(30).optional(),
-});
-
-export const updatePickupPointSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  address_line: z.string().min(1).max(500).optional(),
-  city: z.string().min(1).max(100).optional(),
-  state: z.string().min(1).max(100).optional(),
-  country: z.string().min(1).max(10).optional(),
-  postal_code: z.string().min(1).max(20).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  opening_hours: z.record(z.unknown()).optional(),
-  contact_phone: z.string().min(1).max(30).optional(),
-});
-
-export const pickupPointIdParamsSchema = z.object({
-  id: z.coerce.number().int().positive(),
-});
+export {
+  pickupPointListQuerySchema,
+  createPickupPointSchema,
+  updatePickupPointSchema,
+  pickupPointIdParamsSchema,
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

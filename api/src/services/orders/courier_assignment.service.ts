@@ -1,8 +1,11 @@
 import { z } from 'zod';
-import { OrderStatus } from '@orkoruta/shared';
+import { OrderStatus,
+  assignCourierSchema,
+} from '@orkoruta/shared';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
+import { toDateOnly } from './delivery_schedule.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 import type { TransitionActor } from './state_machine.js';
 import { logger } from '../../lib/logger.js';
@@ -33,9 +36,11 @@ const MAP_STATUSES: string[] = [
 const MAX_ORDERS_PARAM = 'limits.max_concurrent_orders_per_courier';
 const DEFAULT_MAX_ORDERS = 3;
 
-export const assignCourierSchema = z.object({
-  courier_user_id: z.number().int().positive(),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared`: hoy coincide, pero una copia
+ * local es una divergencia esperando a pasar.
+ */
+export { assignCourierSchema };
 
 export type AssignCourierInput = z.infer<typeof assignCourierSchema>;
 
@@ -312,6 +317,7 @@ export const courierAssignmentService = {
           total: true,
           currency: true,
           created_at: true,
+          scheduled_delivery_date: true,
         },
       }),
     );
@@ -333,6 +339,7 @@ export const courierAssignmentService = {
         total: Number(o.total),
         currency: o.currency,
         created_at: o.created_at.toISOString(),
+        scheduled_delivery_date: toDateOnly(o.scheduled_delivery_date),
       };
     });
   },

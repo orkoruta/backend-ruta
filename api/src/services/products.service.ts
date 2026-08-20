@@ -1,28 +1,24 @@
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { z } from 'zod';
-import { createProductSchema, productIdParamsSchema } from '@orkoruta/shared';
+import { createProductSchema, productIdParamsSchema,
+  updateProductSchema,
+} from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import { productListQuerySchema } from '@orkoruta/shared';
 
-export const productListQuerySchema = z.object({
-  category_id: z.coerce.number().int().positive().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-  q: z.string().trim().min(1).max(120).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: antes había
+ * una copia local que podía divergir —y divergía— del contrato publicado.
+ */
+export { productListQuerySchema };
 
-export const updateProductSchema = z.object({
-  name: z.string().min(1).max(300).optional(),
-  description: z.string().optional(),
-  unit_price: z.number().int().positive().optional(),
-  currency: z.string().length(3).optional(),
-  product_type: z.enum(['VENTA_NORMAL', 'PROMOCION']).optional(),
-  category_id: z.number().int().positive().nullable().optional(),
-  stock_quantity: z.number().int().min(0).nullable().optional(),
-  image_url: z.string().url().nullable().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-});
+
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: una copia
+ * local puede divergir del contrato publicado, y esta divergía.
+ */
+export { updateProductSchema };
 
 type ProductListQuery = z.infer<typeof productListQuerySchema>;
 type CreateProductInput = z.infer<typeof createProductSchema>;

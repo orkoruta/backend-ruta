@@ -4,14 +4,16 @@ import { controlViewService } from '../services/control_view.service.js';
 import { requireAdminRuta } from '../middleware/auth.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { toApiError } from '../lib/errors.js';
+import { controlViewEnterSchema } from '@orkoruta/shared';
 
 type ControlViewService = typeof controlViewService;
 
-const enterControlViewSchema = z.object({
-  target_client_id: z.number().int().positive(),
-  master_password: z.string().min(1),
-  reason: z.string().max(500).optional(),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí con el nombre
+ * que ya usaba este módulo: una copia local puede divergir del contrato
+ * publicado, y varias divergían.
+ */
+const enterControlViewSchema = controlViewEnterSchema;
 
 function requestContext(req: Request) {
   return {

@@ -19,6 +19,7 @@ import {
   createCorporateOrderRecurringSchema,
 } from '../services/corporate_orders.service.js';
 import { z } from 'zod';
+import { repeatLastCorporateOrderSchema } from '@orkoruta/shared';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 
@@ -37,9 +38,12 @@ function requireAdminOrOperator(req: Request, res: Response, next: NextFunction)
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
-const repeatLastBodySchema = z.object({
-  buyer_id: z.number().int().positive(),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí con el nombre
+ * que ya usaba este módulo: una copia local puede divergir del contrato
+ * publicado, y varias divergían.
+ */
+const repeatLastBodySchema = repeatLastCorporateOrderSchema;
 
 // ── Router factory ────────────────────────────────────────────────────────────
 

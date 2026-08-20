@@ -1,33 +1,22 @@
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { z } from 'zod';
-import { buyerIdParamsSchema } from '@orkoruta/shared';
+import {
+  buyerIdParamsSchema,
+  buyerListQuerySchema,
+  createBuyerSchema,
+  updateBuyerSchema,
+} from '@orkoruta/shared';
+
+/*
+ * Estos esquemas vivían aquí, duplicados y **divergentes** respecto a los de
+ * `@orkoruta/shared` (el de aquí admitía `INACTIVE`; el de shared, `ARCHIVED`).
+ * Ahora hay una sola definición, en shared, y se reexporta para no tocar las
+ * rutas que ya los importaban desde este módulo.
+ */
+export { buyerListQuerySchema, createBuyerSchema, updateBuyerSchema };
 import { HttpError } from '../lib/http_error.js';
 import { hashPassword } from '../lib/password.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
-
-export const buyerListQuerySchema = z.object({
-  q: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const createBuyerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
-  full_name: z.string().min(1).max(200),
-  phone: z.string().min(1).max(30).optional(),
-  document_type: z.string().min(1).max(10).optional(),
-  document_number: z.string().min(1).max(50).optional(),
-});
-
-export const updateBuyerSchema = z.object({
-  full_name: z.string().min(1).max(200).optional(),
-  phone: z.string().min(1).max(30).optional(),
-  document_type: z.string().min(1).max(10).optional(),
-  document_number: z.string().min(1).max(50).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED']).optional(),
-});
 
 type BuyerListQuery = z.infer<typeof buyerListQuerySchema>;
 type CreateBuyerInput = z.infer<typeof createBuyerSchema>;

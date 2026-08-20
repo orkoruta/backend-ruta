@@ -57,4 +57,23 @@ describe('adminOrdersService.list — DRAFT nunca aparece en el panel del Client
     const where = capturedWhere.findMany as { order_status: unknown };
     expect(where.order_status).toEqual({ in: [] });
   });
+
+  it('oculta los CLOSED por abandono (carrito vencido, pago no completado)', async () => {
+    await adminOrdersService.list(7, baseQuery);
+    const where = capturedWhere.findMany as {
+      NOT: { order_status: string; closure_reason: { in: string[] } };
+    };
+    // Solo se excluyen los CLOSED cuya razón es de abandono.
+    expect(where.NOT.order_status).toBe('CLOSED');
+    expect(where.NOT.closure_reason.in).toEqual(
+      expect.arrayContaining(['EXPIRED', 'PAYMENT_TIMEOUT', 'CANCELLED_NO_PAYMENT']),
+    );
+    // No oculta cancelaciones hechas por una persona ni pedidos completados.
+    expect(where.NOT.closure_reason.in).not.toContain('CANCELLED_BY_CUSTOMER');
+    expect(where.NOT.closure_reason.in).not.toContain('CANCELLED_BY_SELLER');
+    expect(where.NOT.closure_reason.in).not.toContain('CANCELLED_BY_ADMIN');
+    expect(where.NOT.closure_reason.in).not.toContain('COMPLETED_SUCCESSFULLY');
+    // El conteo usa el mismo filtro.
+    expect(capturedWhere.count).toEqual(capturedWhere.findMany);
+  });
 });

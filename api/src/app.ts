@@ -45,6 +45,8 @@ import { adminCorporateOrdersRouter } from './routes/admin_corporate_orders.js';
 import { adminApiKeysRouter } from './routes/admin_api_keys.js'; // F2.BACK-1
 import { apiClientOrdersRouter } from './routes/api_client_orders.js'; // F2.BACK-4
 import { createGeocodingRouter } from './routes/geocoding.js';
+import { adminNotificationsRouter } from './routes/admin_notifications.js';
+import { courierLocationRouter, buyerTrackingRouter } from './routes/courier_location.js';
 import { env } from './config/env.js';
 
 const app: Express = express();
@@ -103,9 +105,18 @@ app.use('/admin', createAdminPickupOpsRouter()); // 4.BACK-1
 // quedaría capturada por el /:id genérico de 2.BACK-2.
 app.use('/admin', adminOrderAssignmentRouter); // 3.BACK-1
 app.use('/admin/orders', adminOrdersRouter); // 2.BACK-2
+// El seguimiento va ANTES que los otros routers de /courier, y no después:
+// ambos aplican `requireIdempotencyKey` con `router.use(...)`, que corre para
+// cualquier `/courier/*` aunque ninguna de sus rutas coincida. Montado detrás,
+// `POST /courier/location` moría con 400 por no llevar cabecera de
+// idempotencia — que a propósito no lleva, por ser un latido que sobrescribe.
+// Este router usa guardas por ruta, así que no intercepta a los de abajo.
+app.use('/courier', courierLocationRouter); // seguimiento: el repartidor reporta
 app.use('/courier', courierOrdersRouter); // 3.BACK-2+3
 app.use('/courier', courierCollectionRouter); // 3.BACK-3 COD collection
+app.use('/buyer/orders', buyerTrackingRouter); // seguimiento: el comprador consulta
 app.use('/admin/payment-providers', adminPaymentConfigRouter);
+app.use('/admin/notifications', adminNotificationsRouter);
 app.use('/admin/parameters', createAdminParametersRouter()); // 5.BACK-34
 app.use('/admin/audit-events', createAdminAuditRouter()); // 5.BACK-34
 app.use('/ruta-admin/audit-events', createRutaAdminAuditRouter()); // 5.BACK-34

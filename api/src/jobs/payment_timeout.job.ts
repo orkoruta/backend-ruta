@@ -52,6 +52,11 @@ export async function timeoutPendingPayments(
         order_status: OrderStatus.ORDER_SUBMITTED,
         payment_status: 'PENDING_ONLINE_PAYMENT',
         submitted_at: { lt: threshold, not: null },
+        // Los pagos por link (Nequi Negocios) quedan fuera: no hay webhook que
+        // confirme, así que el Cliente lo verifica a mano y puede tardar más
+        // que este plazo. Si se incluyeran, se cancelarían pedidos **ya
+        // pagados**, que es mucho peor que dejar abierto uno abandonado.
+        NOT: { payment_method_submethod: 'PAYMENT_LINK' },
       },
       select: { id: true },
     })

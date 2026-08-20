@@ -26,6 +26,7 @@ import {
   RecurrencePeriodicity,
   createCorporateOrderSchema,
   createCorporateOrderRecurringSchema,
+  OrderOrigin,
 } from '@orkoruta/shared';
 import { assertTransition, type TransitionActor } from './orders/state_machine.js';
 import { toDbSubmethod, fromDbSubmethod } from './orders/payment_submethod.js';
@@ -382,7 +383,7 @@ export const corporateOrdersService = {
         data: {
           client_id: BigInt(clientId),
           buyer_id: BigInt(input.buyer_id!),
-          order_origin: 'CORPORATE_MANUAL',
+          order_origin: OrderOrigin.CORPORATE_MANUAL,
           order_status: 'DRAFT',
           payment_status: 'PAYMENT_NOT_STARTED',
           refund_status: 'REFUND_NOT_REQUIRED',
@@ -582,7 +583,7 @@ export const corporateOrdersService = {
         data: {
           client_id: BigInt(clientId),
           buyer_id: BigInt(buyerId),
-          order_origin: 'CORPORATE_MANUAL',
+          order_origin: OrderOrigin.CORPORATE_MANUAL,
           order_status: 'DRAFT',
           payment_status: 'PAYMENT_NOT_STARTED',
           refund_status: 'REFUND_NOT_REQUIRED',

@@ -16,6 +16,12 @@ export interface TransitionContext {
   deliveryCarrierType?: string;
   clientType?: string;
   buyerType?: string;
+  /**
+   * Pedido recurrente: viene de una plantilla ya acordada, así que el sistema lo
+   * pre-aprueba (salta validación y aceptación del vendedor) y lo deja en
+   * SELLER_CONFIRMED, listo para "Marcar preparando".
+   */
+  isRecurring?: boolean;
 }
 
 interface TransitionRule {
@@ -91,9 +97,22 @@ function buildTransitions(): TransitionMap {
   // VALIDATION_REJECTED → cierre por sistema
   addRule(m, OrderStatus.VALIDATION_REJECTED, OrderStatus.CANCELLED_BY_SYSTEM, { actors: ['SYSTEM'] });
 
-  // VALIDATION_APPROVED → aceptación del vendedor (2.BACK-2)
+  // VALIDATION_APPROVED → aceptación del vendedor (2.BACK-2).
+  // SYSTEM también, pero solo para pedidos recurrentes (pre-aprobados).
   addRule(m, OrderStatus.VALIDATION_APPROVED, OrderStatus.SELLER_CONFIRMED, {
-    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],
+    actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA', 'SYSTEM'],
+    condition: (ctx, actor) => actor !== 'SYSTEM' || ctx.isRecurring === true,
+  });
+
+  // Pre-aprobación de pedidos recurrentes: el sistema los lleva directo a
+  // SELLER_CONFIRMED sin pasar por validación ni aceptación manual.
+  addRule(m, OrderStatus.ORDER_SUBMITTED, OrderStatus.SELLER_CONFIRMED, {
+    actors: ['SYSTEM'],
+    condition: (ctx) => ctx.isRecurring === true,
+  });
+  addRule(m, OrderStatus.ORDER_VALIDATING, OrderStatus.SELLER_CONFIRMED, {
+    actors: ['SYSTEM'],
+    condition: (ctx) => ctx.isRecurring === true,
   });
   addRule(m, OrderStatus.VALIDATION_APPROVED, OrderStatus.CANCELLED_BY_SELLER, {
     actors: ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'],

@@ -16,13 +16,23 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import {
   RecurrenceStatus,
   RecurrencePeriodicity,
+  OrderStatus,
   markAsRecurringSchema,
   updateTemplateSchema,
   recurrenceListQuerySchema,
+  OrderOrigin,
 } from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import { logger } from '../lib/logger.js';
+import { assertTransition } from './orders/state_machine.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+
+/** Estados de los que un pedido recurrente puede saltar a SELLER_CONFIRMED. */
+const PRE_APPROVAL_STATES: string[] = [
+  OrderStatus.ORDER_SUBMITTED,
+  OrderStatus.ORDER_VALIDATING,
+  OrderStatus.VALIDATION_APPROVED,
+];
 
 // ── Re-exports de schemas para uso en rutas ───────────────────────────────────
 
@@ -153,6 +163,8 @@ export const recurrenceService = {
           id: true,
           client_id: true,
           buyer_id: true,
+          order_status: true,
+          payment_status: true,
           delivery_type: true,
           delivery_carrier_type: true,
           payment_method: true,
@@ -216,6 +228,22 @@ export const recurrenceService = {
         data: { recurrence_template_id: created.id, updated_at: new Date() },
       });
 
+      // Pre-aprobación: un pedido recurrente ya está acordado, así que se lleva
+      // directo a SELLER_CONFIRMED (el Cliente ve "Marcar preparando" de una, sin
+      // validar ni aceptar a mano). Solo para contra entrega: un pago online debe
+      // completarse antes. Se hace en UN solo salto para no ensuciar el historial
+      // con los estados intermedios de validación.
+      const needsOnlinePayment = order.payment_status === 'PENDING_ONLINE_PAYMENT';
+      if (!needsOnlinePayment && PRE_APPROVAL_STATES.includes(order.order_status)) {
+        assertTransition(order.order_status as OrderStatus, OrderStatus.SELLER_CONFIRMED, 'SYSTEM', {
+          isRecurring: true,
+        });
+        await tx.orders.update({
+          where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+          data: { order_status: OrderStatus.SELLER_CONFIRMED, updated_at: new Date() },
+        });
+      }
+
       logger.info(
         { clientId, orderId, buyerId, templateId: String(created.id), periodicity: input.recurrence_periodicity },
         'Recurrence template created',
@@ -268,7 +296,7 @@ export const recurrenceService = {
         data: {
           client_id: BigInt(clientId),
           buyer_id: BigInt(buyerId),
-          order_origin: 'REPEAT_LAST',
+          order_origin: OrderOrigin.RECURRENCE,
           order_status: 'DRAFT',
           payment_status: 'PAYMENT_PENDING',
           delivery_type: lastOrder.delivery_type,
@@ -664,8 +692,8 @@ export const recurrenceService = {
       ...(query.buyer_id ? { buyer_id: BigInt(query.buyer_id) } : {}),
     };
 
-    const [items, total] = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
-      Promise.all([
+    const { items, total, buyers } = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const [items, total] = await Promise.all([
         tx.recurrence_templates.findMany({
           where,
           orderBy: { created_at: 'desc' },
@@ -673,11 +701,31 @@ export const recurrenceService = {
           take: query.page_size,
         }),
         tx.recurrence_templates.count({ where }),
-      ]),
-    );
+      ]);
+
+      // Nombre del comprador: se consulta en batch para no hacer N+1.
+      const buyerIds = [...new Set(items.map((t) => t.buyer_id))];
+      const buyers = buyerIds.length
+        ? await tx.users.findMany({
+            where: { client_id: BigInt(clientId), id: { in: buyerIds } },
+            select: { id: true, full_name: true, email: true },
+          })
+        : [];
+
+      return { items, total, buyers };
+    });
+
+    const buyerById = new Map(buyers.map((b) => [Number(b.id), b]));
 
     return {
-      data: items.map(serializeTemplate),
+      data: items.map((t) => {
+        const buyer = buyerById.get(Number(t.buyer_id));
+        return {
+          ...serializeTemplate(t),
+          buyer_name: buyer?.full_name ?? null,
+          buyer_email: buyer?.email ?? null,
+        };
+      }),
       pagination: { page: query.page, page_size: query.page_size, total },
     };
   },

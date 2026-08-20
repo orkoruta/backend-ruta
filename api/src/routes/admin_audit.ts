@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dateFilterSchema, startOfBogotaDay, endOfBogotaDayExclusive } from '@orkoruta/shared';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { withTenantReadOnly } from '@orkoruta/db';
 import { requireAdminClient, requireAdminRuta } from '../middleware/auth.js';
@@ -9,8 +10,8 @@ import { toApiError } from '../lib/errors.js';
 const auditListQuerySchema = z.object({
   entity_type: z.string().optional(),
   user_id: z.coerce.number().int().positive().optional(),
-  from: z.string().datetime({ message: 'from debe ser una fecha ISO 8601 válida' }).optional(),
-  to: z.string().datetime({ message: 'to debe ser una fecha ISO 8601 válida' }).optional(),
+  from: dateFilterSchema.optional(),
+  to: dateFilterSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   page_size: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -73,8 +74,8 @@ export const adminAuditService = {
       ...(query.from || query.to
         ? {
             occurred_at: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from ? { gte: startOfBogotaDay(query.from) } : {}),
+              ...(query.to ? { lt: endOfBogotaDayExclusive(query.to) } : {}),
             },
           }
         : {}),
@@ -109,8 +110,8 @@ export const adminAuditService = {
       ...(query.from || query.to
         ? {
             occurred_at: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from ? { gte: startOfBogotaDay(query.from) } : {}),
+              ...(query.to ? { lt: endOfBogotaDayExclusive(query.to) } : {}),
             },
           }
         : {}),

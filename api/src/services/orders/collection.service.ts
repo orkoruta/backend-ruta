@@ -17,6 +17,22 @@ import { assertTransition } from './state_machine.js';
 import { logger } from '../../lib/logger.js';
 import { processWebhookEvent } from '../webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
+import {
+  recordCollectionSchema,
+  isDataImageUri,
+  MAX_EVIDENCE_DATA_URI_LENGTH,
+} from '@orkoruta/shared';
+
+/*
+ * El esquema del cobro y sus validadores viven en `@orkoruta/shared`: la copia
+ * publicada allí **no tenía `evidence_url`**, así que quien la usara mandaba el
+ * cobro sin la foto del recibo. Ahora hay una sola definición.
+ *
+ * `recordCollectionBodySchema` se conserva como alias porque varias rutas lo
+ * importan con ese nombre.
+ */
+export const recordCollectionBodySchema = recordCollectionSchema;
+export { recordCollectionSchema, isDataImageUri, MAX_EVIDENCE_DATA_URI_LENGTH };
 
 // ── Webhook helper ────────────────────────────────────────────────────────────
 
@@ -44,66 +60,10 @@ function emitWebhook(
   });
 }
 
-// ── Evidencia ─────────────────────────────────────────────────────────────────
-
-/**
- * Tope del data URI de la foto: ~1 MB de imagen ya codificada en base64.
- * base64 infla ~33%, así que esto admite una foto de ~1 MB real. El frontend
- * comprime antes de enviar; este límite es la red de seguridad del servidor.
- */
-export const MAX_EVIDENCE_DATA_URI_LENGTH = 1_400_000;
-
-/** Formatos aceptados: los mismos de `storage.allowed_image_formats`. */
-const DATA_IMAGE_URI_PATTERN = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
-
-function isDataImageUri(value: string): boolean {
-  return DATA_IMAGE_URI_PATTERN.test(value);
-}
-
-function isHttpUrl(value: string): boolean {
-  if (value.length > 1000) return false;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
-export const recordCollectionBodySchema = z.object({
-  amount: z.number().positive('El monto debe ser mayor a cero'),
-  currency: z.string().length(3).default('COP'),
-  method: z.enum(['CASH', 'ELECTRONIC']),
-  electronic_submethod: z.enum(['DATAFONO', 'QR', 'BANK_TRANSFER', 'PAYMENT_LINK']).optional(),
-  external_txn_id: z.string().max(255).optional(),
-  notes: z.string().max(500).optional(),
-  /**
-   * Evidencia del cobro. Dos formas admitidas:
-   *   - `https://…` — una URL a un archivo alojado fuera (≤ 1000 caracteres).
-   *   - `data:image/…;base64,…` — la foto embebida.
-   *
-   * Lo segundo es provisional: el proyecto todavía no tiene object storage, así
-   * que la foto viaja y se guarda dentro del JSONB `collection_evidence`. Cuando
-   * exista un bucket, esto migra a subir el archivo y guardar solo la URL.
-   */
-  evidence_url: z
-    .string()
-    .refine(
-      (value) => (isDataImageUri(value) ? value.length <= MAX_EVIDENCE_DATA_URI_LENGTH : isHttpUrl(value)),
-      {
-        message:
-          'La evidencia debe ser una URL http(s) o una imagen jpeg/png/webp embebida de máximo 1 MB',
-      },
-    )
-    .optional(),
-});
 
-/**
- * Alias de compatibilidad para courier_orders.ts que importa este nombre.
- */
-export const recordCollectionSchema = recordCollectionBodySchema;
 
 export type RecordCollectionBody = z.infer<typeof recordCollectionBodySchema>;
 
@@ -403,13 +363,34 @@ export const collectionService = {
         },
       });
 
-      type StoredEvidence = { url?: string; notes?: string } | null;
+      type StoredEvidence = {
+        url?: string;
+        notes?: string;
+        /** Fecha en que el job de purga borró la foto por vencimiento. */
+        purged_at?: string;
+        had_evidence?: boolean;
+      } | null;
 
-      const found = payments
-        .map((p) => ({ payment: p, evidence: (p.collection_evidence ?? null) as StoredEvidence }))
-        .find((row) => Boolean(row.evidence?.url));
+      const rows = payments.map((p) => ({
+        payment: p,
+        evidence: (p.collection_evidence ?? null) as StoredEvidence,
+      }));
+
+      const found = rows.find((row) => Boolean(row.evidence?.url));
 
       if (!found) {
+        // La foto pudo existir y haber vencido. Decir "no tiene evidencia"
+        // sería mentir: hubo respaldo, solo que ya se purgó. Se distingue con
+        // un código propio para que la UI pueda explicarlo.
+        const purged = rows.find((row) => row.evidence?.had_evidence);
+        if (purged) {
+          throw new HttpError(
+            410,
+            'EVIDENCE_EXPIRED',
+            'La foto del recibo venció y fue eliminada',
+            { purged_at: purged.evidence?.purged_at ?? null },
+          );
+        }
         throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Este pedido no tiene evidencia de cobro');
       }
 

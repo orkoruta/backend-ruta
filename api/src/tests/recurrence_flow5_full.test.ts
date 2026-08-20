@@ -281,8 +281,8 @@ describe('F5E2E-1 — Marcar como recurrente → plantilla ACTIVE → job genera
     // Verifica que se creó el pedido
     expect(dbMock.writeTx.orders.create).toHaveBeenCalledOnce();
     const orderCall = dbMock.writeTx.orders.create.mock.calls[0][0];
-    expect(orderCall.data.order_status).toBe('ORDER_SUBMITTED');
-    expect(orderCall.data.order_origin).toBe('SCHEDULED_RECURRING');
+    expect(orderCall.data.order_status).toBe('SELLER_CONFIRMED');
+    expect(orderCall.data.order_origin).toBe('RECURRENCE');
     expect(orderCall.data.recurrence_template_id).toBe(dbTemplate.id);
   });
 });
@@ -384,14 +384,14 @@ describe('F5E2E-4 — Cancelar plantilla → job ignora en todos los ciclos futu
 // F5E2E-5: repeatLastOrder → DRAFT con mismos ítems que el pedido original
 // ────────────────────────────────────────────────────────────────────────────
 describe('F5E2E-5 — repeatLastOrder → DRAFT con mismos ítems que el pedido original', () => {
-  it('POST repeat-last devuelve DRAFT con order_origin REPEAT_LAST', async () => {
+  it('POST repeat-last devuelve DRAFT con order_origin RECURRENCE', async () => {
     const svc = makeMockService();
     const draftOrder = {
       id: 999,
       client_id: CLIENT_A,
       buyer_id: 10,
       order_status: 'DRAFT',
-      order_origin: 'REPEAT_LAST',
+      order_origin: 'RECURRENCE',
       payment_method: 'CASH_ON_DELIVERY',
       delivery_type: 'SHIP',
       subtotal: 75000,
@@ -407,7 +407,7 @@ describe('F5E2E-5 — repeatLastOrder → DRAFT con mismos ítems que el pedido 
 
     expect(res.status).toBe(201);
     expect(res.body.order_status).toBe('DRAFT');
-    expect(res.body.order_origin).toBe('REPEAT_LAST');
+    expect(res.body.order_origin).toBe('RECURRENCE');
     expect(res.body.buyer_id).toBe(10);
     expect(res.body.client_id).toBe(CLIENT_A);
     expect(res.body.subtotal).toBe(75000);
@@ -445,7 +445,7 @@ describe('F5E2E-5 — repeatLastOrder → DRAFT con mismos ítems que el pedido 
       client_id: BigInt(CLIENT_A),
       buyer_id: BUYER_A_ID,
       order_status: 'ORDER_DELIVERED',
-      order_origin: 'BUYER',
+      order_origin: 'BUYER_UI',
       order_items: [item1, item2],
       delivery_type: 'SHIP',
       delivery_carrier_type: 'OWN_FLEET',
@@ -474,7 +474,7 @@ describe('F5E2E-5 — repeatLastOrder → DRAFT con mismos ítems que el pedido 
       client_id: BigInt(CLIENT_A),
       buyer_id: BUYER_A_ID,
       order_status: 'DRAFT',
-      order_origin: 'REPEAT_LAST',
+      order_origin: 'RECURRENCE',
       payment_method: 'CASH_ON_DELIVERY',
       delivery_type: 'SHIP',
       subtotal: 45000,
@@ -498,7 +498,7 @@ describe('F5E2E-5 — repeatLastOrder → DRAFT con mismos ítems que el pedido 
     const result = await realSvc.repeatLastOrder(CLIENT_A, 10);
 
     expect(result.order_status).toBe('DRAFT');
-    expect(result.order_origin).toBe('REPEAT_LAST');
+    expect(result.order_origin).toBe('RECURRENCE');
     // El total es la suma de los ítems clonados: 2*15000 + 3*5000 = 45000
     expect(result.total).toBe(45000);
   });
@@ -611,7 +611,7 @@ describe('F5E2E-7 — CUSTOM_INTERVAL → generación correcta con días persona
     // Pedido generado correctamente
     expect(dbMock.writeTx.orders.create).toHaveBeenCalledOnce();
     const orderCall = dbMock.writeTx.orders.create.mock.calls[0][0];
-    expect(orderCall.data.order_status).toBe('ORDER_SUBMITTED');
+    expect(orderCall.data.order_status).toBe('SELLER_CONFIRMED');
   });
 });
 

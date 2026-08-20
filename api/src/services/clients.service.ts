@@ -1,29 +1,21 @@
 import { withTenant, withTenantReadOnly, type TenantTransactionClient } from '@orkoruta/db';
 import { z } from 'zod';
-import { createClientSchema, clientIdParamsSchema } from '@orkoruta/shared';
+import {
+  createClientSchema,
+  clientIdParamsSchema,
+  clientListQuerySchema,
+  updateClientSchema,
+} from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+
+/* Definidos una sola vez en `@orkoruta/shared`; se reexportan para las rutas. */
+export { clientListQuerySchema, updateClientSchema };
 
 const clientStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
 const frontendModeSchema = z.enum(['NATIVE_RUTA', 'CUSTOM_LANDING_BY_RUTA']);
 
-export const clientListQuerySchema = z.object({
-  status: clientStatusSchema.optional(),
-  client_type: z.enum(['API', 'FULL']).optional(),
-  q: z.string().trim().min(1).max(120).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
 
-export const updateClientSchema = z.object({
-  business_code: z.string().min(1).max(20).optional(),
-  slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/).optional(),
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().optional(),
-  client_type: z.enum(['API', 'FULL']).optional(),
-  frontend_mode: frontendModeSchema.nullable().optional(),
-  status: clientStatusSchema.optional(),
-});
 
 type ClientListQuery = z.infer<typeof clientListQuerySchema>;
 type CreateClientInput = z.infer<typeof createClientSchema>;

@@ -116,7 +116,7 @@ beforeEach(() => {
 });
 
 describe('RG1 — genera pedido correcto para plantilla ACTIVE vencida', () => {
-  it('crea el pedido con order_status ORDER_SUBMITTED', async () => {
+  it('crea el pedido recurrente pre-aprobado en SELLER_CONFIRMED', async () => {
     const past = new Date(Date.now() - 60 * 60 * 1000); // hace 1 hora
     const template = makeTemplate();
 
@@ -133,8 +133,8 @@ describe('RG1 — genera pedido correcto para plantilla ACTIVE vencida', () => {
     // Verifica que se creó el pedido
     expect(dbMock.writeTx.orders.create).toHaveBeenCalledOnce();
     const createCall = dbMock.writeTx.orders.create.mock.calls[0][0];
-    expect(createCall.data.order_status).toBe('ORDER_SUBMITTED');
-    expect(createCall.data.order_origin).toBe('SCHEDULED_RECURRING');
+    expect(createCall.data.order_status).toBe('SELLER_CONFIRMED');
+    expect(createCall.data.order_origin).toBe('RECURRENCE');
     expect(createCall.data.recurrence_template_id).toBe(template.id);
     expect(createCall.data.payment_status).toBe('PAYMENT_PENDING');
   });
@@ -285,6 +285,6 @@ describe('RG10 — ONLINE_AT_ORDER loggea cobro requerido sin fallar', () => {
     expect(dbMock.writeTx.orders.create).toHaveBeenCalledOnce();
     const createCall = dbMock.writeTx.orders.create.mock.calls[0][0];
     expect(createCall.data.payment_method).toBe('ONLINE_AT_ORDER');
-    expect(createCall.data.order_status).toBe('ORDER_SUBMITTED');
+    expect(createCall.data.order_status).toBe('SELLER_CONFIRMED');
   });
 });

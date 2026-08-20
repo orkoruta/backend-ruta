@@ -1,12 +1,20 @@
 import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
-import { OrderStatus } from '@orkoruta/shared';
+import {
+  OrderStatus,
+  OrderOrigin,
+  dateFilterSchema,
+  startOfBogotaDay,
+  endOfBogotaDayExclusive,
+} from '@orkoruta/shared';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { requireAdminClient } from '../middleware/auth.js';
 import { HttpError } from '../lib/http_error.js';
 import { toApiError } from '../lib/errors.js';
 import { assertTransition, canTransition } from '../services/orders/state_machine.js';
+import { DATE_ONLY_PATTERN, fromDateOnly, toDateOnly } from '../services/orders/delivery_schedule.js';
+import { isGuestBuyer } from '../lib/guest_buyer.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import { collectionService } from '../services/orders/collection.service.js';
 import { fromDbSubmethod } from '../services/orders/payment_submethod.js';
@@ -48,13 +56,30 @@ const orderIdParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+/**
+ * Filtros del listado de pedidos del panel del Cliente.
+ *
+ * Tres de estos campos faltaban y la pantalla los mandaba igual:
+ *
+ * - `q` y `order_origin` los descartaba Zod en silencio, así que el buscador
+ *   («Buscar por comprador o #pedido») y las pestañas de origen no filtraban
+ *   nada: se veía la lista completa y parecía que no había coincidencias.
+ * - `date_from`/`date_to` eran `z.string().datetime()`, que exige un ISO-8601
+ *   completo, mientras que el `<input type="date">` manda `2026-08-11`.
+ *   Seleccionar una fecha devolvía **400 y rompía el listado entero**.
+ *
+ * Ahora se acepta el día calendario y también el instante completo, para no
+ * romper a los Clientes API que ya mandaban ISO.
+ */
 const adminOrderListQuerySchema = z.object({
   status: z.string().optional(),
   payment_status: z.string().optional(),
+  order_origin: z.nativeEnum(OrderOrigin).optional(),
   buyer_id: z.coerce.number().int().positive().optional(),
   courier_id: z.coerce.number().int().positive().optional(),
-  date_from: z.string().datetime().optional(),
-  date_to: z.string().datetime().optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  date_from: dateFilterSchema.optional(),
+  date_to: dateFilterSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   page_size: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -69,6 +94,18 @@ const markReadySchema = z.object({
 
 const cancelOrderBodySchema = z.object({
   reason: z.string().trim().min(1).max(500).optional(),
+});
+
+/**
+ * Día de entrega. `null` limpia la programación, para poder deshacer una fecha
+ * puesta por error sin tener que inventar una nueva.
+ */
+const setDeliveryDateSchema = z.object({
+  scheduled_delivery_date: z
+    .string()
+    .regex(DATE_ONLY_PATTERN, 'La fecha debe tener el formato YYYY-MM-DD')
+    .refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00.000Z`)), 'La fecha no existe')
+    .nullable(),
 });
 
 const rejectCancelRequestBodySchema = z.object({
@@ -131,7 +168,7 @@ const orderInclude = {
     },
   },
   users_orders_buyer_id_client_idTousers: {
-    select: { id: true, full_name: true, email: true, phone: true },
+    select: { id: true, full_name: true, email: true, phone: true, external_buyer_id: true },
   },
   users_orders_courier_user_id_client_idTousers: {
     select: { id: true, full_name: true, phone: true },
@@ -145,6 +182,34 @@ const orderInclude = {
 // por fila que la tabla no muestra.
 const orderDetailInclude = {
   ...orderInclude,
+  /*
+   * El pago solo en el detalle. Sin esto el serializador nunca emitía `payment`
+   * y en el panel del Cliente **la tarjeta «Pago» no se pintaba jamás** —está
+   * bajo `{order.payment && …}`— y `isCod` era siempre falso, así que en las
+   * entregas en punto físico el operador no veía el paso de cobro de un pedido
+   * contra entrega.
+   *
+   * Se seleccionan solo campos baratos: **`collection_evidence` queda fuera a
+   * propósito**. Es un JSONB que hoy guarda la foto en base64 (deuda #1) y
+   * traerlo aquí metería cientos de kB en cada lectura del pedido. La evidencia
+   * ya la sirve `GET /admin/orders/:id/collection-evidence`, que es lo que usa
+   * `CollectionEvidenceCard`.
+   *
+   * `take: 1` por el más reciente: un pedido puede acumular varios intentos de
+   * pago y el que importa es el último.
+   */
+  payments: {
+    select: {
+      id: true,
+      status: true,
+      payment_method: true,
+      amount: true,
+      technical_confirmation_at: true,
+      collected_at: true,
+    },
+    orderBy: { created_at: 'desc' as const },
+    take: 1,
+  },
   order_state_history: {
     select: {
       id: true,
@@ -200,11 +265,21 @@ function serializeOrder(o: {
     reason: string | null;
     occurred_at: Date;
   }[];
+  /** Solo en el detalle; el listado no lo carga. */
+  payments?: {
+    id: bigint;
+    status: string;
+    payment_method: string;
+    amount: unknown;
+    technical_confirmation_at: Date | null;
+    collected_at: Date | null;
+  }[];
   users_orders_buyer_id_client_idTousers: {
     id: bigint;
     full_name: string | null;
     email: string;
     phone: string | null;
+    external_buyer_id: string | null;
   };
   users_orders_courier_user_id_client_idTousers: {
     id: bigint;
@@ -215,6 +290,7 @@ function serializeOrder(o: {
   delivery_address_city: string | null;
   delivery_address_state: string | null;
   delivery_instructions: string | null;
+  scheduled_delivery_date: Date | null;
   pickup_points: { id: bigint; name: string } | null;
 }) {
   const buyer = o.users_orders_buyer_id_client_idTousers;
@@ -236,6 +312,9 @@ function serializeOrder(o: {
       name: buyer.full_name ?? buyer.email,
       email: buyer.email,
       phone: buyer.phone,
+      // Un invitado no tiene cuenta y su correo es sintético: el panel necesita
+      // saberlo para no ofrecerlo como forma de contacto.
+      is_guest: isGuestBuyer(buyer.external_buyer_id),
     },
     courier: courier
       ? {
@@ -246,9 +325,14 @@ function serializeOrder(o: {
       : null,
     // Planos para el listado, que muestra columnas en vez del objeto anidado.
     buyer_name: buyer.full_name ?? buyer.email,
+    // El teléfono va también plano: en la lista es el dato con el que el
+    // operador llama, y para un invitado es el único contacto que existe.
+    buyer_phone: buyer.phone,
+    buyer_is_guest: isGuestBuyer(buyer.external_buyer_id),
     courier_name: courier ? courier.full_name : null,
     delivery_address: deliveryAddress,
     delivery_instructions: o.delivery_instructions,
+    scheduled_delivery_date: toDateOnly(o.scheduled_delivery_date),
     pickup_point_name: o.pickup_points?.name ?? null,
     order_status: o.order_status,
     payment_status: o.payment_status,
@@ -283,13 +367,123 @@ function serializeOrder(o: {
       reason: h.reason,
       occurred_at: h.occurred_at.toISOString(),
     })),
+    payment: serializePayment(o.payments?.[0]),
     created_at: o.created_at.toISOString(),
     updated_at: o.updated_at.toISOString(),
     submitted_at: o.submitted_at?.toISOString() ?? null,
   };
 }
 
+/**
+ * `null` en el listado, que no carga los pagos: el panel distingue «no hay
+ * pago» de «no lo pedí» por el contexto, y la tarjeta solo se pinta en el
+ * detalle.
+ *
+ * `confirmed_at` toma la confirmación técnica y, si no la hay, el momento del
+ * cobro: en contra entrega no existe confirmación de pasarela y lo que el
+ * operador quiere ver es cuándo se recogió el dinero.
+ */
+function serializePayment(
+  p:
+    | {
+        id: bigint;
+        status: string;
+        payment_method: string;
+        amount: unknown;
+        technical_confirmation_at: Date | null;
+        collected_at: Date | null;
+      }
+    | undefined,
+) {
+  if (!p) return null;
+  return {
+    id: Number(p.id),
+    status: p.status,
+    method: p.payment_method,
+    amount: Number(p.amount),
+    confirmed_at: (p.technical_confirmation_at ?? p.collected_at)?.toISOString() ?? null,
+  };
+}
+
 // ── Admin orders service ──────────────────────────────────────────────────────
+
+/**
+ * Razones de cierre por ABANDONO: el pedido nunca llegó a ser un pedido real
+ * para el Cliente (carrito vencido, pago online que no se completó, sin pago).
+ * No se muestran en el panel del Cliente. Las cancelaciones hechas por una
+ * persona (`CANCELLED_BY_*`) y los pedidos completados o con fallo de entrega
+ * sí se muestran: fueron pedidos que existieron.
+ */
+/**
+ * Estados en los que ya no tiene sentido programar la entrega: el pedido
+ * terminó (bien o mal). Fijarle un día después del hecho solo confundiría al
+ * comprador, que ya lo tiene resuelto.
+ */
+const SCHEDULING_CLOSED_STATUSES: ReadonlySet<string> = new Set([
+  OrderStatus.DELIVERED,
+  OrderStatus.PICKED_UP,
+  OrderStatus.CONFIRMED_BY_CUSTOMER,
+  OrderStatus.CONFIRMED_BY_SYSTEM,
+  OrderStatus.COMPLETED_SUCCESSFULLY,
+  OrderStatus.CLOSED,
+  OrderStatus.EXPIRED,
+  OrderStatus.PICKUP_EXPIRED,
+  OrderStatus.LOST_IN_TRANSIT,
+  OrderStatus.LOST_IN_RETURN,
+  OrderStatus.CANCELLED_BY_CUSTOMER,
+  OrderStatus.CANCELLED_BY_SELLER,
+  OrderStatus.CANCELLED_BY_SYSTEM,
+  OrderStatus.CANCELLED_BY_ADMIN,
+  OrderStatus.CANCELLED_NO_PAYMENT,
+  OrderStatus.PICKUP_CANCELLED_BY_CUSTOMER,
+]);
+
+const ABANDONMENT_CLOSURE_REASONS = [
+  'EXPIRED', // carrito DRAFT que venció sin confirmar
+  'PAYMENT_TIMEOUT', // confirmado con pago online, nunca se pagó
+  'CANCELLED_NO_PAYMENT', // sin pago
+  'PAYMENT_REJECTED', // el pago falló, nunca se concretó
+  'CANCELLED_BY_SYSTEM', // cierre automático del sistema
+];
+
+/**
+ * Traduce el texto del buscador a un filtro Prisma.
+ *
+ * La pantalla promete «comprador o #pedido» y el `#pedido` que muestra es el
+ * `id`, así que un texto que sea solo dígitos busca además por identificador
+ * exacto. El resto va contra el nombre y el correo del comprador, sin
+ * distinguir mayúsculas.
+ *
+ * Se compara como `string` y se convierte a BigInt solo si cabe, para que un
+ * número absurdamente largo no reviente la consulta.
+ */
+function buildSearchFilter(q: string) {
+  const buyerMatch = {
+    users_orders_buyer_id_client_idTousers: {
+      OR: [
+        { full_name: { contains: q, mode: 'insensitive' as const } },
+        { email: { contains: q, mode: 'insensitive' as const } },
+      ],
+    },
+  };
+
+  // Se arma en una sola expresión para que TypeScript infiera la unión de los
+  // dos tipos de condición; `@orkoruta/db` no reexporta el namespace `Prisma`,
+  // así que no hay con qué anotar el array.
+  return { OR: [buyerMatch, ...(isSearchableOrderId(q) ? [{ id: BigInt(q) }] : [])] };
+}
+
+/** Mayor valor que cabe en un BIGINT de PostgreSQL. */
+const MAX_BIGINT = 9223372036854775807n;
+
+/**
+ * ¿El texto puede ser el id de un pedido? Solo dígitos y dentro del rango de
+ * BIGINT: pasarle a Postgres un número mayor aborta la consulta entera, y con
+ * ella el listado, por una búsqueda que como mucho no encontraría nada.
+ */
+function isSearchableOrderId(q: string): boolean {
+  return /^\d+$/.test(q) && BigInt(q) <= MAX_BIGINT;
+}
 
 export const adminOrdersService = {
   async list(clientId: number, query: z.infer<typeof adminOrderListQuerySchema>) {
@@ -308,17 +502,35 @@ export const adminOrdersService = {
     const where = {
       client_id: BigInt(clientId),
       order_status: statusFilter,
+      // Todo pedido terminal queda en CLOSED; lo que distingue es `closure_reason`.
+      // Los cierres por ABANDONO (el pedido nunca llegó a ser real: carrito
+      // vencido, pago online no completado, sin pago) son ruido para el Cliente
+      // y se ocultan. Se conservan los completados y las cancelaciones/fallos de
+      // pedidos que sí existieron. Se excluye solo si es CLOSED **y** la razón es
+      // de abandono, así los no-CLOSED (closure_reason null) no se ven afectados.
+      NOT: {
+        order_status: OrderStatus.CLOSED,
+        closure_reason: { in: ABANDONMENT_CLOSURE_REASONS },
+      },
       ...(query.payment_status ? { payment_status: query.payment_status } : {}),
+      ...(query.order_origin ? { order_origin: query.order_origin } : {}),
       ...(query.buyer_id ? { buyer_id: BigInt(query.buyer_id) } : {}),
       ...(query.courier_id ? { courier_user_id: BigInt(query.courier_id) } : {}),
+      /*
+       * El día `date_to` se incluye entero: el corte es el inicio del día
+       * siguiente en Bogotá (`lt`, no `lte`). Con `lte` al inicio del día se
+       * perdía todo lo ocurrido en la fecha que el operador acaba de elegir.
+       */
       ...(query.date_from || query.date_to
         ? {
             created_at: {
-              ...(query.date_from ? { gte: new Date(query.date_from) } : {}),
-              ...(query.date_to ? { lte: new Date(query.date_to) } : {}),
+              ...(query.date_from ? { gte: startOfBogotaDay(query.date_from) } : {}),
+              ...(query.date_to ? { lt: endOfBogotaDayExclusive(query.date_to) } : {}),
             },
           }
         : {}),
+      // El buscador de la pantalla dice «comprador o #pedido»: eso es lo que hace.
+      ...(query.q ? buildSearchFilter(query.q) : {}),
     };
 
     const [items, total] = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
@@ -700,6 +912,144 @@ export const adminOrdersService = {
     return serializeOrder(order);
   },
 
+  /**
+   * Fija (o limpia, con `null`) el día en que el Cliente se compromete a
+   * entregar. No es un cambio de estado — el pedido sigue donde está — así que
+   * no pasa por el state machine; sí se audita, porque es un compromiso con el
+   * comprador y `order_state_history` no lo registraría.
+   */
+  async setDeliveryDate(
+    clientId: number,
+    orderId: number,
+    actor: AuthenticatedUser,
+    scheduledDeliveryDate: string | null,
+  ) {
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+
+      // Programar la entrega de un pedido que ya terminó no significa nada, y
+      // le cambiaría la fecha al comprador después del hecho.
+      if (SCHEDULING_CLOSED_STATUSES.has(existing.order_status)) {
+        throw new HttpError(
+          422,
+          'INVALID_STATE_TRANSITION',
+          'El pedido ya finalizó: no se puede cambiar su día de entrega',
+          { order_status: existing.order_status },
+        );
+      }
+
+      const updated = await tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: {
+          scheduled_delivery_date: fromDateOnly(scheduledDeliveryDate),
+          updated_at: new Date(),
+        },
+        include: orderInclude,
+      });
+
+      await tx.audit_events.create({
+        data: {
+          client_id: BigInt(clientId),
+          actor_user_id: BigInt(actor.id),
+          actor_type: 'USER',
+          actor_role: actor.user_type,
+          action: scheduledDeliveryDate
+            ? 'order_delivery_date_set'
+            : 'order_delivery_date_cleared',
+          entity_type: 'order',
+          entity_id: BigInt(orderId),
+          metadata: {
+            previous: toDateOnly(existing.scheduled_delivery_date),
+            current: scheduledDeliveryDate,
+          },
+          result: 'SUCCESS',
+        },
+      });
+
+      return updated;
+    });
+
+    logger.info(
+      { clientId, orderId, scheduledDeliveryDate, actorId: actor.id },
+      'admin_orders: día de entrega actualizado',
+    );
+
+    return serializeOrder(order);
+  },
+
+  /**
+   * Marca como recibido un pago hecho por **link** (Nequi Negocios).
+   *
+   * Ese medio no tiene webhook: nadie le avisa a RUTA de que el comprador pagó,
+   * así que el Cliente lo verifica en su app de Nequi y lo confirma aquí. Al
+   * dejar `payment_status = PAID`, el job `validate_order` recoge el pedido y
+   * sigue el curso normal, igual que si lo hubiera confirmado Wompi.
+   *
+   * Solo aplica a pedidos por link pendientes de pago: para Wompi el estado lo
+   * pone el webhook, y para contra entrega el cobro lo registra el repartidor.
+   */
+  async confirmLinkPayment(clientId: number, orderId: number, actor: AuthenticatedUser) {
+    const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.orders.findUnique({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        include: orderInclude,
+      });
+      if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
+
+      if (existing.payment_method_submethod !== 'PAYMENT_LINK') {
+        throw new HttpError(
+          422,
+          'INVALID_STATE_TRANSITION',
+          'Este pedido no se paga por link: su pago no se confirma a mano',
+          { payment_method_submethod: existing.payment_method_submethod },
+        );
+      }
+
+      if (existing.payment_status !== 'PENDING_ONLINE_PAYMENT') {
+        throw new HttpError(
+          422,
+          'INVALID_STATE_TRANSITION',
+          'El pago de este pedido ya no está pendiente',
+          { payment_status: existing.payment_status },
+        );
+      }
+
+      const now = new Date();
+      const updated = await tx.orders.update({
+        where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+        data: { payment_status: 'PAID', updated_at: now },
+        include: orderInclude,
+      });
+
+      await tx.audit_events.create({
+        data: {
+          client_id: BigInt(clientId),
+          actor_user_id: BigInt(actor.id),
+          actor_type: 'USER',
+          actor_role: actor.user_type,
+          action: 'order_link_payment_confirmed',
+          entity_type: 'order',
+          entity_id: BigInt(orderId),
+          metadata: { payment_method_submethod: 'PAYMENT_LINK' },
+          result: 'SUCCESS',
+        },
+      });
+
+      return updated;
+    });
+
+    logger.info(
+      { clientId, orderId, actorId: actor.id },
+      'admin_orders: pago por link confirmado a mano',
+    );
+
+    return serializeOrder(order);
+  },
+
   async approveCancelRequest(clientId: number, orderId: number, actor: AuthenticatedUser) {
     const transitionActor = toTransitionActor(actor.user_type);
     const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
@@ -894,6 +1244,29 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
       const { id } = orderIdParamsSchema.parse(req.params);
       const { delivery_carrier_type } = markReadySchema.parse(req.body ?? {});
       res.json(await service.markReady(req.user!.client_id, id, req.user!, delivery_carrier_type));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // PUT /admin/orders/:id/delivery-date — fija o limpia el día de entrega
+  router.put('/:id/delivery-date', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const { scheduled_delivery_date } = setDeliveryDateSchema.parse(req.body ?? {});
+      res.json(
+        await service.setDeliveryDate(req.user!.client_id, id, req.user!, scheduled_delivery_date),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/confirm-payment — pago por link verificado a mano
+  router.post('/:id/confirm-payment', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = orderIdParamsSchema.parse(req.params);
+      res.json(await service.confirmLinkPayment(req.user!.client_id, id, req.user!));
     } catch (error) {
       next(error);
     }

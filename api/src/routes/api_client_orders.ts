@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
-import { createApiOrderSchema, apiOrderListQuerySchema, OrderStatus } from '@orkoruta/shared';
+import { createApiOrderSchema, apiOrderListQuerySchema, OrderStatus, OrderOrigin } from '@orkoruta/shared';
 import { apiKeyAuth } from '../middleware/api_key_auth.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import { createApiClientOrder } from '../services/orders/orders.service.js';
@@ -217,7 +217,11 @@ apiClientOrdersRouter.get(
       const skip = (query.page - 1) * query.page_size;
 
       const where = {
-        order_origin: 'API' as const,
+        // El CHECK de la BD no admite 'API': los pedidos que inyecta un
+        // Cliente API se guardan con 'API_LOGISTICS' (ver orders.service).
+        // Con el valor anterior este filtro no casaba con ninguna fila y el
+        // endpoint devolvía siempre una lista vacía, sin dar error.
+        order_origin: OrderOrigin.API_LOGISTICS,
         ...(query.status ? { order_status: query.status } : {}),
         ...(query.from || query.to
           ? {
@@ -275,7 +279,7 @@ apiClientOrdersRouter.get(
       }
 
       // Extra check: solo pedidos API del mismo cliente
-      if (order.order_origin !== 'API') {
+      if (order.order_origin !== OrderOrigin.API_LOGISTICS) {
         res.status(404).json(toApiError('RESOURCE_NOT_FOUND', 'Pedido no encontrado'));
         return;
       }
@@ -308,7 +312,7 @@ apiClientOrdersRouter.post(
         }
 
         // Tenant isolation: solo pedidos API
-        if (existing.order_origin !== 'API') {
+        if (existing.order_origin !== OrderOrigin.API_LOGISTICS) {
           throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
         }
 

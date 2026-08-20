@@ -1,20 +1,24 @@
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { z } from 'zod';
-import { createCategorySchema, categoryIdParamsSchema } from '@orkoruta/shared';
+import { createCategorySchema, categoryIdParamsSchema,
+  updateCategorySchema,
+} from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import { categoryListQuerySchema } from '@orkoruta/shared';
 
-export const categoryListQuerySchema = z.object({
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(50),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: antes había
+ * una copia local que podía divergir —y divergía— del contrato publicado.
+ */
+export { categoryListQuerySchema };
 
-export const updateCategorySchema = z.object({
-  name: z.string().min(1).max(160).optional(),
-  sort_order: z.number().int().min(0).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
-});
+
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: una copia
+ * local puede divergir del contrato publicado, y esta divergía.
+ */
+export { updateCategorySchema };
 
 type CategoryListQuery = z.infer<typeof categoryListQuerySchema>;
 type CreateCategoryInput = z.infer<typeof createCategorySchema>;

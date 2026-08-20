@@ -250,7 +250,7 @@ describe('RC6 — repeatLastOrder: crea DRAFT con mismos ítems', () => {
       client_id: 1,
       buyer_id: 10,
       order_status: 'DRAFT',
-      order_origin: 'REPEAT_LAST',
+      order_origin: 'RECURRENCE',
       payment_method: 'CASH_ON_DELIVERY',
       delivery_type: 'SHIP',
       subtotal: 50000,
@@ -266,7 +266,7 @@ describe('RC6 — repeatLastOrder: crea DRAFT con mismos ítems', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.order_status).toBe('DRAFT');
-    expect(res.body.order_origin).toBe('REPEAT_LAST');
+    expect(res.body.order_origin).toBe('RECURRENCE');
     expect(svc.repeatLastOrder).toHaveBeenCalledWith(1, 10);
   });
 });

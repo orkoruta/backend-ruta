@@ -20,29 +20,29 @@ import { RefundStatus } from '@orkoruta/shared';
 import { HttpError } from '../lib/http_error.js';
 import { logger } from '../lib/logger.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import {
+  refundListQuerySchema,
+  initiateRefundSchema,
+  markRefundExecutedSchema,
+} from '@orkoruta/shared';
+import { startOfBogotaDay, endOfBogotaDayExclusive } from '@orkoruta/shared';
+
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí: antes había
+ * una copia local que podía divergir —y divergía— del contrato publicado.
+ */
+export { refundListQuerySchema };
 
 // ── Schemas de entrada ────────────────────────────────────────────────────────
 
-export const initiateRefundBodySchema = z.object({
-  amount: z.number().positive('El monto debe ser mayor a cero'),
-  refund_modality: z.enum(['STORE_CREDIT', 'BANK_REFUND']),
-  reason: z.string().min(1).max(500).optional(),
-});
+/*
+ * Definidos una sola vez en `@orkoruta/shared` y reexportados aquí con los
+ * nombres que ya usaba este módulo, por la misma razón que el resto: una copia
+ * local puede divergir del contrato publicado, y esta divergía.
+ */
+export const initiateRefundBodySchema = initiateRefundSchema;
+export const markRefundExecutedBodySchema = markRefundExecutedSchema;
 
-export const markRefundExecutedBodySchema = z.object({
-  outcome: z.enum(['REFUNDED', 'PARTIALLY_REFUNDED', 'FAILED']),
-  amount_executed: z.number().positive().optional(),
-  external_provider_refund_id: z.string().max(255).optional(),
-  evidence: z.string().max(2000).optional(),
-});
-
-export const refundListQuerySchema = z.object({
-  status: z.string().optional(),
-  from: z.string().datetime({ offset: true }).optional(),
-  to: z.string().datetime({ offset: true }).optional(),
-  page: z.coerce.number().int().positive().default(1),
-  page_size: z.coerce.number().int().positive().max(100).default(20),
-});
 
 export type InitiateRefundBody = z.infer<typeof initiateRefundBodySchema>;
 export type MarkRefundExecutedBody = z.infer<typeof markRefundExecutedBodySchema>;
@@ -548,8 +548,8 @@ export const refundsService = {
       ...(query.from || query.to
         ? {
             created_at: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from ? { gte: startOfBogotaDay(query.from) } : {}),
+              ...(query.to ? { lt: endOfBogotaDayExclusive(query.to) } : {}),
             },
           }
         : {}),

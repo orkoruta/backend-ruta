@@ -2,6 +2,7 @@ import { OrderStatus, PaymentStatus } from '@orkoruta/shared';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
 import { readableInstructions } from './delivery_instructions.js';
+import { toDateOnly } from './delivery_schedule.js';
 import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
 
@@ -61,6 +62,7 @@ function serializeOrder(o: {
   delivery_address_latitude: unknown;
   delivery_address_longitude: unknown;
   delivery_instructions: string | null;
+  scheduled_delivery_date: Date | null;
   pickup_point_id: bigint | null;
   subtotal: unknown;
   tax: unknown;
@@ -113,6 +115,7 @@ function serializeOrder(o: {
           }
         : null,
     pickup_point_id: o.pickup_point_id ? Number(o.pickup_point_id) : null,
+    scheduled_delivery_date: toDateOnly(o.scheduled_delivery_date),
     subtotal: Number(o.subtotal),
     tax: Number(o.tax),
     shipping_fee: Number(o.shipping_fee),

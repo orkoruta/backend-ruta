@@ -12,6 +12,23 @@ import { withTenant, withTenantReadOnly } from '@orkoruta/db';
  */
 
 const WOMPI_PROVIDER_NAME = 'wompi';
+/**
+ * Nequi Negocios se modela como proveedor de tipo `PAYMENT_LINK` en la misma
+ * tabla, sin tocar el esquema: la CHECK ya admite ese `provider_type`.
+ *
+ * **No es una pasarela.** Un link de Nequi Negocios es una URL estática que el
+ * negocio publica; el comprador paga desde su app y **no hay webhook de vuelta**.
+ * RUTA no puede enterarse sola de que el pago ocurrió, así que el Cliente lo
+ * confirma a mano desde el detalle del pedido. De ahí dos consecuencias en el
+ * resto del código:
+ *   1. El link **no es secreto** (está pensado para compartirse), a diferencia
+ *      de las llaves de Wompi: se devuelve tal cual.
+ *   2. Estos pedidos quedan fuera del job de expiración por falta de pago
+ *      (`payment_timeout.job.ts`), que si no los cancelaría a todos.
+ */
+const NEQUI_PROVIDER_NAME = 'nequi';
+const NEQUI_PROVIDER_TYPE = 'PAYMENT_LINK';
+const NEQUI_METHODS = ['ONLINE_AT_ORDER'];
 const WOMPI_PROVIDER_TYPE = 'PAYMENT_GATEWAY';
 const WOMPI_METHODS = ['ONLINE_AT_ORDER'];
 
@@ -27,9 +44,27 @@ export const wompiConfigSchema = z.object({
 
 export type WompiConfigInput = z.infer<typeof wompiConfigSchema>;
 
+export const nequiConfigSchema = z.object({
+  enabled: z.boolean(),
+  /**
+   * URL del link de pago de Nequi Negocios. Se exige http(s) para no acabar
+   * pintándole al comprador un enlace que no abre.
+   */
+  payment_link: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((v) => v === '' || /^https?:\/\/\S+$/i.test(v), 'El link debe empezar por http:// o https://')
+    .optional()
+    .default(''),
+});
+
+export type NequiConfigInput = z.infer<typeof nequiConfigSchema>;
+
 type StoredConfig = {
   public_key?: string;
   private_key?: string;
+  payment_link?: string;
 };
 
 /** Config lista para escribir en el JSONB: sin claves `undefined`. */
@@ -37,6 +72,7 @@ function toJsonConfig(config: StoredConfig): Record<string, string> {
   const out: Record<string, string> = {};
   if (config.public_key) out.public_key = config.public_key;
   if (config.private_key) out.private_key = config.private_key;
+  if (config.payment_link) out.payment_link = config.payment_link;
   return out;
 }
 
@@ -143,10 +179,83 @@ export const paymentConfigService = {
     });
   },
 
+  /** Estado de la config de Nequi. El link no es secreto: se devuelve entero. */
+  async getNequiConfig(clientId: number) {
+    const provider = await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
+      tx.client_payment_providers.findFirst({
+        where: { client_id: BigInt(clientId), provider_name: NEQUI_PROVIDER_NAME },
+        select: { config: true, status: true, updated_at: true },
+      }),
+    );
+
+    if (!provider) {
+      return {
+        configured: false,
+        enabled: false,
+        payment_link: '',
+        updated_at: null as string | null,
+      };
+    }
+
+    const config = (provider.config ?? {}) as StoredConfig;
+    return {
+      configured: true,
+      enabled: provider.status === 'ACTIVE',
+      payment_link: config.payment_link ?? '',
+      updated_at: provider.updated_at?.toISOString() ?? null,
+    };
+  },
+
+  /** Crea o actualiza el link de pago de Nequi del Cliente. */
+  async upsertNequiConfig(clientId: number, input: NequiConfigInput) {
+    return withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const existing = await tx.client_payment_providers.findFirst({
+        where: { client_id: BigInt(clientId), provider_name: NEQUI_PROVIDER_NAME },
+        select: { id: true },
+      });
+
+      // Activar sin link dejaría al comprador con una opción que no lleva a
+      // ningún sitio, así que el estado real depende de que el link exista.
+      const status = input.enabled && input.payment_link ? 'ACTIVE' : 'INACTIVE';
+      const now = new Date();
+      const config = toJsonConfig({ payment_link: input.payment_link });
+
+      if (existing) {
+        await tx.client_payment_providers.update({
+          where: { id_client_id: { id: existing.id, client_id: BigInt(clientId) } },
+          data: { config, status, updated_at: now },
+        });
+      } else {
+        await tx.client_payment_providers.create({
+          data: {
+            client_id: BigInt(clientId),
+            provider_type: NEQUI_PROVIDER_TYPE,
+            provider_name: NEQUI_PROVIDER_NAME,
+            display_name: 'Nequi Negocios',
+            config,
+            // `is_default` en false: el proveedor por defecto de ONLINE_AT_ORDER
+            // sigue siendo Wompi, que es el que resuelve `initiate-payment`.
+            is_default: false,
+            applicable_payment_methods: NEQUI_METHODS,
+            created_at: now,
+            updated_at: now,
+          },
+        });
+      }
+
+      return {
+        configured: true,
+        enabled: status === 'ACTIVE',
+        payment_link: input.payment_link,
+        updated_at: now.toISOString(),
+      };
+    });
+  },
+
   /**
-   * ¿El Cliente puede recibir pagos online? Verdadero solo si el proveedor está
-   * ACTIVO y tiene public + private key cargadas. Lo usa el storefront para
-   * mostrar u ocultar la opción de Wompi en el checkout.
+   * ¿El Cliente puede recibir pagos online por Wompi? Verdadero solo si el
+   * proveedor está ACTIVO y tiene public + private key cargadas. Lo usa el
+   * storefront para mostrar u ocultar la opción de Wompi en el checkout.
    */
   async isOnlinePaymentEnabled(clientId: number): Promise<boolean> {
     const provider = await withTenantReadOnly(clientId, 'BUYER', (tx) =>
@@ -154,7 +263,7 @@ export const paymentConfigService = {
         where: {
           client_id: BigInt(clientId),
           status: 'ACTIVE',
-          applicable_payment_methods: { has: 'ONLINE_AT_ORDER' },
+          provider_name: WOMPI_PROVIDER_NAME,
         },
         select: { config: true },
       }),
@@ -163,5 +272,26 @@ export const paymentConfigService = {
     if (!provider) return false;
     const config = (provider.config ?? {}) as StoredConfig;
     return Boolean(config.public_key && config.private_key);
+  },
+
+  /**
+   * Link de Nequi del Cliente, o `null` si no lo tiene activo. El storefront lo
+   * usa para decidir si ofrece la opción y para mostrarle la URL al comprador.
+   */
+  async getActiveNequiLink(clientId: number): Promise<string | null> {
+    const provider = await withTenantReadOnly(clientId, 'BUYER', (tx) =>
+      tx.client_payment_providers.findFirst({
+        where: {
+          client_id: BigInt(clientId),
+          status: 'ACTIVE',
+          provider_name: NEQUI_PROVIDER_NAME,
+        },
+        select: { config: true },
+      }),
+    );
+
+    if (!provider) return null;
+    const config = (provider.config ?? {}) as StoredConfig;
+    return config.payment_link || null;
   },
 };

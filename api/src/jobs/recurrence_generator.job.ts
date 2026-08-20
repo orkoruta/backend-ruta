@@ -19,7 +19,7 @@
 
 import type { PgBoss } from 'pg-boss';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
-import { RecurrenceStatus, RecurrencePeriodicity } from '@orkoruta/shared';
+import { RecurrenceStatus, RecurrencePeriodicity, OrderOrigin } from '@orkoruta/shared';
 import { logger } from '../lib/logger.js';
 import { processWebhookEvent } from '../services/webhooks_outgoing.service.js';
 
@@ -195,14 +195,16 @@ export async function generateOrderFromTemplate(
       return;
     }
 
-    // Crear el pedido en estado ORDER_SUBMITTED
+    // Un pedido recurrente ya está acordado: nace pre-aprobado en SELLER_CONFIRMED
+    // (el Cliente lo ve listo para "Marcar preparando", sin validar ni aceptar).
+    // El pago online, si aplica, lo ejecuta el proveedor del Cliente aparte.
     const newOrder = await tx.orders.create({
       data: {
         client_id: BigInt(clientId),
         buyer_id: template.buyer_id,
         recurrence_template_id: template.id,
-        order_origin: 'SCHEDULED_RECURRING',
-        order_status: 'ORDER_SUBMITTED',
+        order_origin: OrderOrigin.RECURRENCE,
+        order_status: 'SELLER_CONFIRMED',
         payment_status: 'PAYMENT_PENDING',
         delivery_type: template.delivery_type,
         delivery_carrier_type: template.delivery_carrier_type ?? null,

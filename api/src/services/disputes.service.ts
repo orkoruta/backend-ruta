@@ -24,6 +24,7 @@ import { logger } from '../lib/logger.js';
 import { refundsService } from './refunds.service.js';
 import { returnsService } from './returns.service.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import { dateFilterSchema, startOfBogotaDay, endOfBogotaDayExclusive } from '@orkoruta/shared';
 
 // ── Estados de disputa (los 5 estados requeridos por el Bloque 15) ─────────────
 
@@ -59,8 +60,8 @@ export const resolveDisputeBodySchema = z.object({
 
 export const disputeListQuerySchema = z.object({
   status: z.string().optional(),
-  from: z.string().datetime({ offset: true }).optional(),
-  to: z.string().datetime({ offset: true }).optional(),
+  from: dateFilterSchema.optional(),
+  to: dateFilterSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   page_size: z.coerce.number().int().positive().max(100).default(20),
 });
@@ -560,8 +561,8 @@ export const disputesService = {
       ...(query.from || query.to
         ? {
             created_at: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
+              ...(query.from ? { gte: startOfBogotaDay(query.from) } : {}),
+              ...(query.to ? { lt: endOfBogotaDayExclusive(query.to) } : {}),
             },
           }
         : {}),

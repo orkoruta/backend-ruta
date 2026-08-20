@@ -1,28 +1,15 @@
-import type { ApiError, ErrorCode } from '@orkoruta/shared';
+import { ERROR_CODES, type ApiError, type ErrorCode } from '@orkoruta/shared';
 
+/**
+ * Códigos de error del backend.
+ *
+ * La lista **no se copia**: se importa de `@orkoruta/shared`, que es la fuente
+ * de verdad compartida con el frontend. Antes había aquí una copia escrita a
+ * mano, y añadir un código en `shared` rompía la compilación de este archivo
+ * hasta que alguien se acordaba de duplicarlo. `DATABASE_UNAVAILABLE` es el
+ * único propio: no viaja al cliente como código de negocio.
+ */
 type BackendErrorCode = ErrorCode | 'DATABASE_UNAVAILABLE';
-
-const ERROR_CODES = {
-  AUTHENTICATION_REQUIRED: 'AUTHENTICATION_REQUIRED',
-  FORBIDDEN: 'FORBIDDEN',
-  MISSING_OPERATOR_PERMISSION: 'MISSING_OPERATOR_PERMISSION',
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
-  IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
-  INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
-  LOGISTICS_ONLY_FEATURE_UNAVAILABLE: 'LOGISTICS_ONLY_FEATURE_UNAVAILABLE',
-  OPTIMISTIC_LOCK_FAILED: 'OPTIMISTIC_LOCK_FAILED',
-  PAYMENT_PROVIDER_ERROR: 'PAYMENT_PROVIDER_ERROR',
-  WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
-  RATE_LIMITED: 'RATE_LIMITED',
-  TENANT_ISOLATION_VIOLATION: 'TENANT_ISOLATION_VIOLATION',
-  // F2.2.BACK-2: Códigos para autenticación por API key
-  API_KEY_INVALID: 'API_KEY_INVALID',
-  API_KEY_REVOKED: 'API_KEY_REVOKED',
-  API_KEY_EXPIRED: 'API_KEY_EXPIRED',
-  SCOPE_NOT_ALLOWED: 'SCOPE_NOT_ALLOWED',
-  EXTERNAL_SERVICE_ERROR: 'EXTERNAL_SERVICE_ERROR',
-} as const;
 
 const BACKEND_ERROR_CODES = {
   ...ERROR_CODES,

@@ -7,6 +7,7 @@ import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
 import { logger } from '../../lib/logger.js';
 import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { deliveryEmailService } from '../notifications/delivery_email.service.js';
 import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
 // ── Webhook helper ────────────────────────────────────────────────────────────
@@ -566,6 +567,19 @@ export const courierOpsService = {
         courier_user_id: courierUserId,
         delivered_at: updated!.delivered_at?.toISOString() ?? new Date().toISOString(),
       });
+
+      // Aviso por correo al comprador. Va por la cola y sin `await` en la ruta
+      // crítica: si el correo falla, el pedido sigue entregado igual.
+      const boss = getMaintenanceBoss();
+      if (boss) {
+        setImmediate(() => {
+          deliveryEmailService
+            .queueDeliveryEmail(clientId, orderId, boss)
+            .catch((err: unknown) =>
+              logger.warn({ err, clientId, orderId }, 'delivery_email: no se pudo encolar'),
+            );
+        });
+      }
 
       return result;
     });

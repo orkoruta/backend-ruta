@@ -18,6 +18,7 @@ import type { AuthenticatedUser } from '../../middleware/auth.js';
 import type { TransitionActor } from './state_machine.js';
 import { logger } from '../../lib/logger.js';
 import { processWebhookEvent } from '../webhooks_outgoing.service.js';
+import { deliveryEmailService } from '../notifications/delivery_email.service.js';
 import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
 // ── Webhook helper ────────────────────────────────────────────────────────────
@@ -264,6 +265,19 @@ export async function markPickupDelivered(
       delivery_type: 'PICKUP',
       delivered_at: deliveredAt.toISOString(),
     });
+
+    // Aviso por correo al comprador. Va por la cola y sin `await` en la ruta
+    // crítica: si el correo falla, el pedido sigue entregado igual.
+    const boss = getMaintenanceBoss();
+    if (boss) {
+      setImmediate(() => {
+        deliveryEmailService
+          .queueDeliveryEmail(clientId, orderId, boss)
+          .catch((err: unknown) =>
+            logger.warn({ err, clientId, orderId }, 'delivery_email: no se pudo encolar'),
+          );
+      });
+    }
 
     return pickupResult;
   });

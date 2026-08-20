@@ -6,16 +6,17 @@ import {
   createOrderSchema,
   confirmOrderSchema,
   cancelOrderSchema,
+  OrderOrigin,
+
+  requestCancelSchema,
 } from '@orkoruta/shared';
 import { HttpError } from '../../lib/http_error.js';
 import { assertTransition } from './state_machine.js';
 import { toDbSubmethod, fromDbSubmethod } from './payment_submethod.js';
+import { toDateOnly } from './delivery_schedule.js';
 import type { AuthenticatedUser } from '../../middleware/auth.js';
 
 // requestCancelSchema no está en @orkoruta/shared@1.1.0; se define aquí
-export const requestCancelSchema = z.object({
-  reason: z.string().min(1, 'La razón de la solicitud de cancelación es requerida'),
-});
 
 export const orderListQuerySchema = z.object({
   status: z.nativeEnum(OrderStatus).optional(),
@@ -68,6 +69,7 @@ function serializeOrder(o: {
   delivery_address_latitude: unknown;
   delivery_address_longitude: unknown;
   delivery_instructions: string | null;
+  scheduled_delivery_date: Date | null;
   pickup_point_id: bigint | null;
   subtotal: unknown;
   tax: unknown;
@@ -129,6 +131,7 @@ function serializeOrder(o: {
           }
         : null,
     pickup_point_id: o.pickup_point_id ? Number(o.pickup_point_id) : null,
+    scheduled_delivery_date: toDateOnly(o.scheduled_delivery_date),
     subtotal: Number(o.subtotal),
     tax: Number(o.tax),
     shipping_fee: Number(o.shipping_fee),
@@ -226,7 +229,7 @@ export const ordersService = {
         data: {
           client_id: BigInt(clientId),
           buyer_id: BigInt(actor.id),
-          order_origin: 'BUYER_UI',
+          order_origin: OrderOrigin.BUYER_UI,
           order_status: OrderStatus.DRAFT,
           payment_status: PaymentStatus.PAYMENT_NOT_STARTED,
           refund_status: 'REFUND_NOT_REQUIRED',
@@ -548,6 +551,9 @@ import { logger } from '../../lib/logger.js';
 import { processWebhookEvent } from '../webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../../jobs/maintenance_boss.js';
 
+/* Definidos una sola vez en `@orkoruta/shared`; se reexportan para las rutas. */
+export { requestCancelSchema };
+
 export type CreateApiOrderInput = z.infer<typeof createApiOrderSchema>;
 
 /**
@@ -617,7 +623,7 @@ export async function createApiClientOrder(
       data: {
         client_id: clientId,
         buyer_id: createdByUserId, // FK sentinel: usuario admin que creó la API key
-        order_origin: 'API_LOGISTICS',
+        order_origin: OrderOrigin.API_LOGISTICS,
         order_status: validated.initial_state,
         payment_status: paymentStatus,
         refund_status: 'REFUND_NOT_REQUIRED',

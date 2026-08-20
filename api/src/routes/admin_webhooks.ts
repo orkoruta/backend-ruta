@@ -16,13 +16,14 @@ import { toApiError } from '../lib/errors.js';
 import { HttpError } from '../lib/http_error.js';
 import { retryWebhookDelivery } from '../services/webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../jobs/maintenance_boss.js';
+import { dateFilterSchema, startOfBogotaDay, endOfBogotaDayExclusive } from '@orkoruta/shared';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
 const deliveryListQuerySchema = z.object({
   status: z.enum(['DELIVERED', 'FAILED']).optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  from: dateFilterSchema.optional(),
+  to: dateFilterSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -91,8 +92,8 @@ export function createAdminWebhooksRouter(): Router {
               ...(from || to
                 ? {
                     created_at: {
-                      ...(from ? { gte: new Date(from) } : {}),
-                      ...(to ? { lte: new Date(to) } : {}),
+                      ...(from ? { gte: startOfBogotaDay(from) } : {}),
+                      ...(to ? { lt: endOfBogotaDayExclusive(to) } : {}),
                     },
                   }
                 : {}),

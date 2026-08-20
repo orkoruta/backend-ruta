@@ -40,11 +40,12 @@ export function createPublicCatalogRouter(): Router {
       const { slug } = slugParamsSchema.parse(req.params);
       const client = await resolveClientBySlug(slug);
 
-      // El storefront usa esto para mostrar u ocultar "Pago online (Wompi)":
-      // solo aparece si el Cliente tiene su pasarela configurada y activa.
-      const onlinePaymentEnabled = await paymentConfigService.isOnlinePaymentEnabled(
-        Number(client.id),
-      );
+      // El storefront usa esto para mostrar u ocultar los medios de pago: cada
+      // uno aparece solo si el Cliente lo tiene configurado y activo.
+      const [onlinePaymentEnabled, nequiPaymentLink] = await Promise.all([
+        paymentConfigService.isOnlinePaymentEnabled(Number(client.id)),
+        paymentConfigService.getActiveNequiLink(Number(client.id)),
+      ]);
 
       res.json({
         id: Number(client.id),
@@ -54,6 +55,9 @@ export function createPublicCatalogRouter(): Router {
         logo_url: client.logo_url,
         frontend_mode: client.frontend_mode,
         online_payment_enabled: onlinePaymentEnabled,
+        // El link de Nequi es público por naturaleza (el negocio lo comparte),
+        // así que viaja entero. `null` = el Cliente no lo tiene activo.
+        nequi_payment_link: nequiPaymentLink,
       });
     } catch (error) {
       next(error);

@@ -5,24 +5,18 @@ import { authService } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
+import { guestBuyerSchema, registerBuyerSchema } from '@orkoruta/shared';
 
 type AuthService = typeof authService;
 
-const guestSchema = z.object({
-  client_slug: z.string().min(1),
-  full_name: z.string().min(1).max(200).optional(),
-  phone: z.string().min(1).max(50).optional(),
-});
+/*
+ * Definido una sola vez en `@orkoruta/shared` y reexportado aquí con el nombre
+ * que ya usaba este módulo: una copia local puede divergir del contrato
+ * publicado, y varias divergían.
+ */
+const guestSchema = guestBuyerSchema;
 
-const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  full_name: z.string().min(1).max(200).optional(),
-  phone: z.string().min(1).max(50).optional(),
-  document_type: z.string().min(1).max(20).optional(),
-  document_number: z.string().min(1).max(50).optional(),
-  client_slug: z.string().min(1),
-});
+const registerSchema = registerBuyerSchema;
 
 const COOKIE_OPTIONS = {
   httpOnly: true,

@@ -166,7 +166,7 @@ function makePrismaOrder(overrides: Record<string, unknown> = {}) {
     payment_method_submethod: null,
     buyer_type: 'CORPORATE',
     closure_reason: null,
-    order_origin: 'API',
+    order_origin: 'API_LOGISTICS',
     subtotal: 50000n,
     tax: 0n,
     shipping_fee: 0n,
@@ -446,7 +446,7 @@ describe('AC4 — POST /api/orders/:id/cancel estado cancelable → 200 CLOSED',
 describe('AC5 — POST /api/orders/:id/cancel estado DELIVERED → 422 INVALID_STATE_TRANSITION', () => {
   it('retorna 422 cuando el pedido está en DELIVERED', async () => {
     dbMock.writeTx.orders.findUnique.mockResolvedValueOnce(
-      makePrismaOrder({ order_status: 'DELIVERED', order_origin: 'API' }),
+      makePrismaOrder({ order_status: 'DELIVERED', order_origin: 'API_LOGISTICS' }),
     );
 
     const res = await request(buildApiApp())
@@ -460,7 +460,7 @@ describe('AC5 — POST /api/orders/:id/cancel estado DELIVERED → 422 INVALID_S
 
   it('retorna 422 cuando el pedido está en CLOSED', async () => {
     dbMock.writeTx.orders.findUnique.mockResolvedValueOnce(
-      makePrismaOrder({ order_status: 'CLOSED', order_origin: 'API' }),
+      makePrismaOrder({ order_status: 'CLOSED', order_origin: 'API_LOGISTICS' }),
     );
 
     const res = await request(buildApiApp())
