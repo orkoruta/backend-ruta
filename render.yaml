@@ -1,19 +1,43 @@
+# Render blueprint — backend RUTA
+#
+# Los secretos (sync: false) se rellenan en el panel de Render o en un env group.
+#
+# Sobre el clonado de `packages-ruta` en el buildCommand:
+# `pnpm-workspace.yaml` resuelve `@orkoruta/shared` y `@orkoruta/db` con
+# `link:../packages-ruta/...`, una ruta **fuera del repo**. Render clona un solo
+# repositorio, así que sin este paso el enlace queda colgando y el build no
+# resuelve los paquetes internos. Se clona como hermano (`../packages-ruta`) para
+# que la ruta del override siga siendo válida tal cual, sin tocar los lockfiles
+# ni el flujo local (editar `shared` y verlo al instante).
+# El `zod` del override vive en `packages-ruta/shared/node_modules`, por eso hay
+# que instalar ahí antes de instalar aquí.
+
 services:
   - type: web
-    name: ruta-api
+    name: ruta-orko-api
     runtime: node
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: >-
-      npm install pnpm@11.4.0 --no-save &&
-      node_modules/.bin/pnpm install --frozen-lockfile &&
-      node_modules/.bin/pnpm --filter @ruta/api build
-    startCommand: pnpm --filter @ruta/api start
+      rm -rf ../packages-ruta &&
+      git clone --depth 1 "https://x-access-token:$NPM_TOKEN@github.com/orkoruta/packages-ruta.git" ../packages-ruta &&
+      npm install pnpm@11.4.0 --prefix=/tmp/pnpm-bin --no-save &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --dir ../packages-ruta install --frozen-lockfile &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --dir ../packages-ruta build &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm install --frozen-lockfile &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --filter @ruta/api build
+    startCommand: node api/dist/index.js
     healthCheckPath: /healthz
-    plan: starter
+    # El servicio está HOY en plan free y región oregon. Declararlos tal cual es
+    # deliberado: un `plan:` distinto al real lo cambiaría al sincronizar, y
+    # subir de plan se factura.
+    plan: free
+    region: oregon
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "22"
       - key: PORT
         value: "3001"
       - key: HOST
@@ -22,6 +46,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # La vida de los tokens NO se configura por env: va por rol en
+      # client_parameters (fila global client_id = 0).
       - key: WOMPI_PUBLIC_KEY
         sync: false
       - key: WOMPI_PRIVATE_KEY
@@ -30,8 +56,25 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # Clave de SERVIDOR para la Geocoding API, restringida por IP.
+      # No es la misma que la del navegador (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY).
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # Correo transaccional (aviso de entrega). Opcionales: sin EMAIL_API_KEY
+      # el envío se salta con un log. EMAIL_FROM debe ser de dominio verificado.
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: RUTA
       - key: LOGTAIL_TOKEN
         sync: false
+      # PAT clásico de GitHub. Hace doble trabajo: autentica el registry de
+      # GitHub Packages (@orkoruta) y el `git clone` de packages-ruta del
+      # buildCommand. Verificado que el token actual puede clonar ese repo.
+      # Si algún día se cambia por uno fine-grained de solo paquetes, el clone
+      # deja de funcionar y hay que darle un token propio.
       - key: NPM_TOKEN
         sync: false
 
@@ -41,18 +84,37 @@ services:
     repo: https://github.com/orkoruta/backend-ruta
     rootDir: .
     buildCommand: >-
-      npm install pnpm@11.4.0 --no-save &&
-      node_modules/.bin/pnpm install --frozen-lockfile &&
-      node_modules/.bin/pnpm --filter @ruta/api build
-    startCommand: pnpm --filter @ruta/api start:worker
+      rm -rf ../packages-ruta &&
+      git clone --depth 1 "https://x-access-token:$NPM_TOKEN@github.com/orkoruta/packages-ruta.git" ../packages-ruta &&
+      npm install pnpm@11.4.0 --prefix=/tmp/pnpm-bin --no-save &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --dir ../packages-ruta install --frozen-lockfile &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --dir ../packages-ruta build &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm install --frozen-lockfile &&
+      /tmp/pnpm-bin/node_modules/.bin/pnpm --filter @ruta/api build
+    startCommand: node api/dist/index.worker.js
+    # OJO: este worker está SUSPENDIDO en Render desde hace meses. Los jobs no
+    # se han perdido porque la API también los arranca (`initMaintenanceJobs`
+    # en `index.ts`), así que hoy es redundante. No hay plan gratuito para
+    # workers: reactivarlo se factura.
     plan: starter
+    region: oregon
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "22"
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
         sync: false
+      # El worker corre los jobs de mantenimiento, y uno de ellos
+      # (delivery_email.job) manda el aviso de entrega: necesita las EMAIL_*.
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: RUTA
       - key: LOGTAIL_TOKEN
         sync: false
       - key: NPM_TOKEN
