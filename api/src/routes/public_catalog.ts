@@ -101,7 +101,7 @@ export function createPublicCatalogRouter(): Router {
             orderBy: query.sort ? sortOrder[query.sort] : { created_at: 'desc' },
             skip,
             take: query.limit,
-            select: { id: true, name: true, description: true, unit_price: true, currency: true, category_id: true, image_url: true, product_type: true },
+            select: { id: true, sku: true, name: true, description: true, unit_price: true, currency: true, category_id: true, image_url: true, product_type: true, metadata: true },
           }),
           tx.products.count({ where }),
         ])
@@ -110,6 +110,15 @@ export function createPublicCatalogRouter(): Router {
       res.json({
         data: items.map((p) => ({
           id: Number(p.id),
+          /*
+           * `sku` y `metadata` los necesitan las landings custom
+           * (CUSTOM_LANDING_BY_RUTA): el sku es como emparejan su catálogo con
+           * el de RUTA sin duplicar ids, y metadata lleva lo que la
+           * presentación necesita y el modelo no tiene (etiquetas, precio
+           * tachado, unidades). Son públicos a conciencia: describen un
+           * producto que ya se está publicando en una tienda abierta.
+           */
+          sku: p.sku,
           name: p.name,
           description: p.description,
           unit_price: Number(p.unit_price),
@@ -117,6 +126,7 @@ export function createPublicCatalogRouter(): Router {
           category_id: p.category_id ? Number(p.category_id) : null,
           image_url: p.image_url,
           product_type: p.product_type,
+          metadata: p.metadata ?? null,
         })),
         pagination: { page: query.page, limit: query.limit, total },
       });
@@ -137,7 +147,7 @@ export function createPublicCatalogRouter(): Router {
       const product = await withTenantReadOnly(clientId, 'BUYER', (tx) =>
         tx.products.findFirst({
           where: { id: BigInt(productId), client_id: BigInt(clientId), status: 'ACTIVE' },
-          select: { id: true, name: true, description: true, unit_price: true, currency: true, category_id: true, image_url: true, product_type: true },
+          select: { id: true, sku: true, name: true, description: true, unit_price: true, currency: true, category_id: true, image_url: true, product_type: true, metadata: true },
         })
       );
 
@@ -145,6 +155,9 @@ export function createPublicCatalogRouter(): Router {
 
       res.json({
         id: Number(product.id),
+        // Mismo criterio que en el listado: sku para emparejar, metadata para pintar.
+        sku: product.sku,
+        metadata: product.metadata ?? null,
         name: product.name,
         description: product.description,
         unit_price: Number(product.unit_price),
