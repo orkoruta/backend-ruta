@@ -1,6 +1,12 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { loginSchema, loginRutaAdminSchema, refreshSessionSchema, logoutSchema } from '@orkoruta/shared';
+import {
+  loginSchema,
+  loginRutaAdminSchema,
+  refreshSessionSchema,
+  logoutSchema,
+  claimAccountSchema,
+} from '@orkoruta/shared';
 import { env } from '../config/env.js';
 import { authService } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -108,6 +114,28 @@ export function createAuthRouter(service: AuthService = authService): Router {
       next(error);
     }
   });
+
+  /*
+   * POST /auth/claim-account — un invitado se queda con su cuenta.
+   *
+   * Exige sesión: el usuario a completar es el de la cookie, no uno que venga
+   * en el cuerpo. Se emiten cookies nuevas porque la identidad cambia.
+   */
+  router.post(
+    '/claim-account',
+    requireAuth,
+    requireIdempotencyKey,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const input = claimAccountSchema.parse(req.body);
+        const result = await service.claimAccount(req.user!, input, requestContext(req));
+        setAuthCookies(res, result.accessToken, result.refreshToken);
+        res.json({ ...authResponse(result), is_guest: false });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
     try {

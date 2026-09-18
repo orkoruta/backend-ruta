@@ -4,6 +4,7 @@ import { HttpError } from '../lib/http_error.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { signAccessToken } from '../lib/token.js';
 import { getParameterInt } from '../lib/parameter.js';
+import { isGuestBuyer } from '../lib/guest_buyer.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 
 interface RequestContext {
@@ -210,6 +211,84 @@ export const authService = {
       }),
     );
 
+    return buildLoginResult(user.id, user.client_id, 'BUYER', user.email, ctx);
+  },
+
+  /**
+   * Convierte una sesión de invitado en una cuenta con contraseña.
+   *
+   * Sin esto, quien pide como invitado queda atrapado: sus pedidos cuelgan de
+   * un usuario sin contraseña y con correo sintético, y registrarse después
+   * crea un usuario **distinto** al que esos pedidos nunca se asocian. Aquí no
+   * se crea nada nuevo: se completa el usuario que ya existe, de modo que el
+   * historial se conserva sin tocar ni un pedido.
+   *
+   * El Cliente sale de la sesión, nunca del cuerpo: aceptar un `client_slug`
+   * del cliente permitiría intentar arrastrar un invitado a otro tenant.
+   */
+  async claimAccount(
+    actor: AuthenticatedUser,
+    input: { email: string; password: string; full_name?: string; phone?: string },
+    ctx: RequestContext,
+  ): Promise<LoginResult> {
+    const clientId = actor.client_id;
+
+    const current = await withTenantReadOnly(clientId, 'BUYER', (tx) =>
+      tx.users.findUnique({
+        where: { id_client_id: { id: BigInt(actor.id), client_id: BigInt(clientId) } },
+        select: { id: true, client_id: true, external_buyer_id: true, status: true, user_type: true },
+      }),
+    );
+
+    if (!current || current.status !== 'ACTIVE') {
+      throw new HttpError(401, 'AUTHENTICATION_REQUIRED', 'Sesión no válida');
+    }
+
+    /*
+     * Solo un invitado puede reclamar. Para alguien que ya tiene cuenta esto
+     * sería un cambio de correo y contraseña sin pedir la contraseña actual:
+     * un secuestro de cuenta a un `fetch` de distancia.
+     */
+    if (!isGuestBuyer(current.external_buyer_id)) {
+      throw new HttpError(422, 'INVALID_STATE_TRANSITION', 'Esta sesión ya tiene una cuenta');
+    }
+
+    const passwordHash = await hashPassword(input.password);
+
+    const user = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
+      const taken = await tx.users.findUnique({
+        where: { client_id_email: { client_id: BigInt(clientId), email: input.email } },
+        select: { id: true },
+      });
+      if (taken) {
+        throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', 'Ese correo ya tiene cuenta');
+      }
+
+      return tx.users.update({
+        where: { id_client_id: { id: current.id, client_id: current.client_id } },
+        data: {
+          email: input.email,
+          password_hash: passwordHash,
+          auth_mode: 'PASSWORD',
+          // Deja de ser invitado: se borra la marca que lo identificaba como tal.
+          // El job `cleanup_guest_buyers` ya no lo mirará, y el panel dejará de
+          // tratar su correo como sintético.
+          external_buyer_id: null,
+          full_name: input.full_name?.trim() || undefined,
+          phone: input.phone?.trim() || undefined,
+          last_login_at: new Date(),
+        },
+      });
+    }).catch((err: unknown) => {
+      if (err instanceof HttpError) throw err;
+      if (typeof err === 'object' && err && 'code' in err && err.code === 'P2002') {
+        throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', 'Ese correo ya tiene cuenta');
+      }
+      throw err;
+    });
+
+    // Tokens nuevos: la identidad del usuario ha cambiado y los anteriores se
+    // emitieron para un invitado.
     return buildLoginResult(user.id, user.client_id, 'BUYER', user.email, ctx);
   },
 
