@@ -6,15 +6,38 @@ on:
     branches:
       - main
 
+# `pnpm-workspace.yaml` resuelve @orkoruta/shared y @orkoruta/db con
+# `link:../packages-ruta/...`, una ruta **fuera de este repo**. Un checkout
+# normal deja ese enlace colgando y el typecheck falla con «Cannot find module
+# '@orkoruta/shared'». Por eso este job clona los dos repos como hermanos:
+#
+#   $GITHUB_WORKSPACE/backend-ruta    <- este repo
+#   $GITHUB_WORKSPACE/packages-ruta   <- los paquetes internos
+#
+# Es lo mismo que hace el buildCommand de Render. Si algún día se vuelve a
+# consumir shared desde GitHub Packages, este paso sobra.
+
 jobs:
   test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
+    defaults:
+      run:
+        working-directory: backend-ruta
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: backend-ruta
+
+      - name: Checkout packages-ruta (hermano)
+        uses: actions/checkout@v4
+        with:
+          repository: orkoruta/packages-ruta
+          token: ${{ secrets.NPM_PUBLISH_TOKEN }}
+          path: packages-ruta
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -25,9 +48,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
           registry-url: https://npm.pkg.github.com
           scope: '@orkoruta'
+
+      # El override de `zod` apunta dentro de packages-ruta/shared/node_modules,
+      # así que hay que instalar ahí antes que aquí.
+      - name: Install packages-ruta
+        working-directory: packages-ruta
+        run: pnpm install --frozen-lockfile
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN || github.token }}
+
+      - name: Build packages-ruta
+        working-directory: packages-ruta
+        run: pnpm build
+        env:
+          # `prisma generate` solo lee el esquema, pero exige la variable.
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ruta
 
       - name: Install
         run: pnpm install --frozen-lockfile
