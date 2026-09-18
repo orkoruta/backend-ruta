@@ -39,12 +39,21 @@ const mockService = {
   logout: vi.fn(),
 };
 
+/*
+ * El montaje imita al de `app.ts`: el router `/auth` va **antes** del
+ * `authenticate` global, porque login, registro e invitado son públicos.
+ *
+ * Es el detalle que importa. Montarlo después —como haría un test cómodo—
+ * poblaría `req.user` y daría por bueno un endpoint que en producción responde
+ * 401 con una cookie válida. Le pasaba a `/auth/logout` desde siempre: nadie
+ * podía cerrar sesión.
+ */
 function buildApp() {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
-  app.use(authenticate);
   app.use('/auth', createAuthRouter(mockService as never));
+  app.use(authenticate);
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof ZodError) {
       res.status(400).json(toApiError('VALIDATION_ERROR', 'Datos inválidos'));
@@ -164,6 +173,36 @@ describe('POST /auth/claim-account', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('INVALID_STATE_TRANSITION');
+  });
+
+  /*
+   * Regresión: el router /auth se monta antes del `authenticate` global, así
+   * que las rutas que exigen sesión necesitan `authenticate` propio. Sin él
+   * `requireAuth` ve `req.user` vacío y responde 401 con una cookie válida.
+   */
+  it('autentica por sí misma, aunque el router se monte antes del authenticate global', async () => {
+    mockService.claimAccount.mockResolvedValue(RESULTADO);
+
+    const res = await request(buildApp())
+      .post('/auth/claim-account')
+      .set('Cookie', ['access_token=t'])
+      .set('X-Idempotency-Key', 'k-7')
+      .send(CUERPO);
+
+    expect(res.status).toBe(200);
+    expect(mockService.claimAccount).toHaveBeenCalled();
+  });
+
+  it('logout también autentica por sí misma (llevaba roto en producción)', async () => {
+    mockService.logout.mockResolvedValue(undefined);
+
+    const res = await request(buildApp())
+      .post('/auth/logout')
+      .set('Cookie', ['access_token=t'])
+      .send({});
+
+    expect(res.status).toBe(204);
+    expect(mockService.logout).toHaveBeenCalled();
   });
 
   it('propaga el 409 cuando el correo ya tiene cuenta', async () => {

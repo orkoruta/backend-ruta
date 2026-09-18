@@ -9,7 +9,16 @@ import {
 } from '@orkoruta/shared';
 import { env } from '../config/env.js';
 import { authService } from '../services/auth.service.js';
-import { requireAuth } from '../middleware/auth.js';
+/*
+ * `authenticate` va explícito en cada ruta de este router que exige sesión.
+ *
+ * El router `/auth` se monta en `app.ts` **antes** del `app.use(authenticate)`
+ * global —tiene que ser así: login, registro e invitado son públicos—, de modo
+ * que aquí `req.user` nunca está poblado. `requireAuth` solo comprueba
+ * `req.user`, así que sin esto responde 401 aunque la cookie sea válida. Es lo
+ * que le pasaba a `/auth/logout`: nadie podía cerrar sesión.
+ */
+import { authenticate, requireAuth } from '../middleware/auth.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import { guestBuyerSchema, registerBuyerSchema } from '@orkoruta/shared';
@@ -123,6 +132,7 @@ export function createAuthRouter(service: AuthService = authService): Router {
    */
   router.post(
     '/claim-account',
+    authenticate,
     requireAuth,
     requireIdempotencyKey,
     async (req: Request, res: Response, next: NextFunction) => {
@@ -183,7 +193,7 @@ export function createAuthRouter(service: AuthService = authService): Router {
     }
   });
 
-  router.post('/logout', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/logout', authenticate, requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = logoutSchema.parse(req.body);
       await service.logout(req.user as AuthenticatedUser, {
