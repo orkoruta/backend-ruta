@@ -25,6 +25,24 @@ export const env = {
    * Los resuelve `services/auth.service.ts`; los valores por defecto del
    * código solo aplican si no existe la fila.
    */
+  /**
+   * `SameSite` de las cookies de sesión. **No puede ser fijo**: depende de si el
+   * frontend y la API comparten «sitio» a ojos del navegador.
+   *
+   *  - En local lo comparten (`localhost:3002` → `localhost:3001`), así que
+   *    `strict` es correcto y es el valor por defecto.
+   *  - En Render **no**: `onrender.com` está en la Public Suffix List, de modo
+   *    que `ruta-admin.onrender.com` y `ruta-orko-api.onrender.com` son sitios
+   *    distintos. Con `strict` el navegador descarta la cookie y la primera
+   *    petición tras el login sale sin sesión: 401 y «Tu sesión caducó» al
+   *    segundo de entrar. El bug era invisible en desarrollo.
+   *  - Con dominios propios bajo `ruta.com` (`app.` y `api.`) volverán a ser el
+   *    mismo sitio y esto debe regresar a `strict`.
+   *
+   * `none` exige cookies `Secure`; lo comprueba `validateEnv`.
+   */
+  COOKIE_SAMESITE: (process.env.COOKIE_SAMESITE || 'strict') as 'strict' | 'lax' | 'none',
+
   WOMPI_PUBLIC_KEY: process.env.WOMPI_PUBLIC_KEY || '',
   WOMPI_PRIVATE_KEY: process.env.WOMPI_PRIVATE_KEY || '',
   WOMPI_WEBHOOK_SECRET: process.env.WOMPI_WEBHOOK_SECRET || '',
@@ -70,6 +88,28 @@ export function validateEnv(): void {
 
   if (env.NODE_ENV === 'production' && env.JWT_SECRET === DEV_JWT_SECRET) {
     console.error('FATAL: JWT_SECRET must be set to a secure value in production');
+    process.exit(1);
+  }
+
+  /*
+   * Se valida en el arranque y no al poner la cookie porque los dos fallos
+   * posibles son **silenciosos en el navegador**: un valor inválido hace que
+   * Express omita el atributo, y `SameSite=None` sin `Secure` hace que el
+   * navegador descarte la cookie entera. En ambos casos el síntoma es una
+   * sesión que no persiste, que es justo lo que costó encontrar una vez.
+   */
+  const SAME_SITE_VALUES = ['strict', 'lax', 'none'];
+  if (!SAME_SITE_VALUES.includes(env.COOKIE_SAMESITE)) {
+    console.error(
+      `FATAL: COOKIE_SAMESITE="${env.COOKIE_SAMESITE}" no es válido (${SAME_SITE_VALUES.join(' | ')})`,
+    );
+    process.exit(1);
+  }
+  if (env.COOKIE_SAMESITE === 'none' && env.NODE_ENV !== 'production') {
+    console.error(
+      'FATAL: COOKIE_SAMESITE=none exige cookies Secure, y Secure solo se activa ' +
+        'con NODE_ENV=production. El navegador descartaría la cookie sin avisar.',
+    );
     process.exit(1);
   }
 }

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { loginSchema, loginRutaAdminSchema, refreshSessionSchema, logoutSchema } from '@orkoruta/shared';
+import { env } from '../config/env.js';
 import { authService } from '../services/auth.service.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
@@ -18,10 +19,17 @@ const guestSchema = guestBuyerSchema;
 
 const registerSchema = registerBuyerSchema;
 
+/*
+ * `sameSite` sale de la configuración y no está fijo a 'strict': si el frontend
+ * y la API no comparten sitio (el caso de Render, donde `onrender.com` es un
+ * sufijo público y cada subdominio es un sitio distinto), una cookie 'strict'
+ * no se envía nunca y la sesión muere en la primera petición tras el login.
+ * El porqué completo y cuándo volver a 'strict' están en `config/env.ts`.
+ */
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
+  secure: env.NODE_ENV === 'production',
+  sameSite: env.COOKIE_SAMESITE,
   path: '/',
 };
 

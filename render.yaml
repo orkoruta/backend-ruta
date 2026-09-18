@@ -56,6 +56,14 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # `onrender.com` está en la Public Suffix List, así que el panel
+      # (ruta-admin.onrender.com) y esta API son **sitios distintos** para el
+      # navegador: una cookie SameSite=Strict no se envía nunca y la sesión
+      # moría en la primera petición tras el login. Cuando el front pase a
+      # app.ruta.com y esta API a api.ruta.com volverán a compartir sitio y
+      # esto debe regresar a "strict".
+      - key: COOKIE_SAMESITE
+        value: none
       # Clave de SERVIDOR para la Geocoding API, restringida por IP.
       # No es la misma que la del navegador (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY).
       - key: GOOGLE_MAPS_API_KEY
