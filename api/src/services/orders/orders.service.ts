@@ -11,6 +11,7 @@ import {
   requestCancelSchema,
 } from '@orkoruta/shared';
 import { HttpError } from '../../lib/http_error.js';
+import { geocodingService } from '../geocoding.service.js';
 import { assertTransition } from './state_machine.js';
 import { toDbSubmethod, fromDbSubmethod } from './payment_submethod.js';
 import { toDateOnly } from './delivery_schedule.js';
@@ -295,6 +296,44 @@ export const ordersService = {
       // Actualizar DRAFT → PENDING_CONFIRM → ORDER_SUBMITTED (atómico)
       const addr = input.delivery_address;
 
+      /*
+       * Si el frontend no mandó coordenadas, se geocodifica aquí.
+       *
+       * El mapa de asignación filtra por `delivery_address_latitude/longitude`
+       * distintos de null, así que un pedido sin coordenadas **desaparece del
+       * mapa sin decir nada**: el operador ve el pedido en la lista, lo abre,
+       * pulsa «Ir al mapa de asignación» y no está. Pasó con el pedido 379 de
+       * Avocado Delivery.
+       *
+       * Dependía de que cada frontend geocodificara por su cuenta: el
+       * storefront lo hace, una landing custom puede no hacerlo y un Cliente
+       * API tampoco tiene por qué. Al resolverlo aquí, vale para todos.
+       *
+       * No bloquea el pedido: si Google falla o la clave no está configurada,
+       * se registra y se sigue con las coordenadas en null. Perder la ubicación
+       * es malo; perder la venta, peor.
+       */
+      let coords = { lat: addr?.latitude ?? null, lon: addr?.longitude ?? null };
+      if (addr && coords.lat == null && coords.lon == null) {
+        const texto = [addr.line, addr.city, addr.state, addr.country]
+          .filter(Boolean)
+          .join(', ');
+        try {
+          const punto = await geocodingService.geocode(texto);
+          if (punto) {
+            coords = { lat: punto.latitude, lon: punto.longitude };
+            logger.info(
+              { order_id: orderId, precision: punto.precision },
+              'Dirección geocodificada al confirmar el pedido',
+            );
+          } else {
+            logger.warn({ order_id: orderId, texto }, 'Google no ubicó la dirección del pedido');
+          }
+        } catch (err) {
+          logger.error({ err, order_id: orderId }, 'Falló la geocodificación al confirmar');
+        }
+      }
+
       const updated = await tx.orders.update({
         where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
         data: {
@@ -308,8 +347,8 @@ export const ordersService = {
           delivery_address_state: addr?.state ?? null,
           delivery_address_country: addr?.country ?? null,
           delivery_address_postal_code: addr?.postal_code ?? null,
-          delivery_address_latitude: addr?.latitude ?? null,
-          delivery_address_longitude: addr?.longitude ?? null,
+          delivery_address_latitude: coords.lat,
+          delivery_address_longitude: coords.lon,
           delivery_instructions: addr?.instructions ?? null,
           pickup_point_id: input.pickup_point_id ? BigInt(input.pickup_point_id) : null,
           submitted_at: new Date(),
