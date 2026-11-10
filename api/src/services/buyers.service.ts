@@ -100,8 +100,11 @@ export const buyersService = {
       ...(query.q
         ? {
             OR: [
-              { email: { contains: query.q } },
-              { full_name: { contains: query.q } },
+              // Sin distinguir mayúsculas: «la casona» tiene que encontrar
+              // «La Casona», o el buscador del pedido corporativo no sirve.
+              { email: { contains: query.q, mode: 'insensitive' as const } },
+              { full_name: { contains: query.q, mode: 'insensitive' as const } },
+              { phone: { contains: query.q } },
               { document_number: { contains: query.q } },
             ],
           }

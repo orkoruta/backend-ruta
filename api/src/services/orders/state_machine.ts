@@ -22,6 +22,17 @@ export interface TransitionContext {
    * SELLER_CONFIRMED, listo para "Marcar preparando".
    */
   isRecurring?: boolean;
+  /**
+   * El pedido lo registró el staff del Cliente (corporativo o al detal tomado
+   * por teléfono). Como no hay comprador en la tienda que lo confirme, el
+   * propio staff lo confirma al crearlo.
+   */
+  staffRegistered?: boolean;
+}
+
+/** Pedido que el staff registró en nombre del comprador. */
+function isStaffRegistered(ctx: TransitionContext): boolean {
+  return ctx.buyerType === 'CORPORATE' || ctx.staffRegistered === true;
 }
 
 interface TransitionRule {
@@ -53,7 +64,7 @@ function buildTransitions(): TransitionMap {
   // El carrito de un comprador individual sigue siendo solo suyo.
   addRule(m, OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, {
     actors: ['BUYER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT'],
-    condition: (ctx, actor) => actor === 'BUYER' || ctx.buyerType === 'CORPORATE',
+    condition: (ctx, actor) => actor === 'BUYER' || isStaffRegistered(ctx),
   });
   addRule(m, OrderStatus.DRAFT, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.DRAFT, OrderStatus.EXPIRED, { actors: ['SYSTEM'] });
@@ -61,7 +72,7 @@ function buildTransitions(): TransitionMap {
   // PENDING_CONFIRM
   addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.ORDER_SUBMITTED, {
     actors: ['BUYER', 'ADMIN_CLIENT', 'OPERATOR_CLIENT'],
-    condition: (ctx, actor) => actor === 'BUYER' || ctx.buyerType === 'CORPORATE',
+    condition: (ctx, actor) => actor === 'BUYER' || isStaffRegistered(ctx),
   });
   addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.CANCELLED_BY_CUSTOMER, { actors: ['BUYER'] });
   addRule(m, OrderStatus.PENDING_CONFIRM, OrderStatus.EXPIRED, { actors: ['SYSTEM'] });
@@ -439,7 +450,66 @@ function buildTransitions(): TransitionMap {
     addRule(m, status, OrderStatus.CLOSED, { actors: ['SYSTEM'] });
   }
 
+  addAdminDirectDeliveryRules(m);
+
   return m;
+}
+
+/**
+ * Entrega hecha por el propio Cliente (sin repartidor, o en lugar de él).
+ *
+ * Hay negocios en los que el dueño reparte a veces. Sin esto, un pedido solo
+ * podía cerrarse como entregado desde la app del repartidor, y el Cliente
+ * terminaba creándose una cuenta de repartidor para poder marcarlo.
+ *
+ * Se permite desde cualquier punto de la rama SHIP en que el pedido ya salió de
+ * preparación y aún no se entregó. La condición de pago es la misma que exige
+ * el repartidor: el cobro tiene que estar registrado (o el pedido pagado). El
+ * servicio registra el cobro antes de transicionar cuando es contra entrega.
+ *
+ * Las reglas existentes del repartidor para el mismo par de estados **se
+ * conservan**: `addRule` sobrescribe, así que aquí se combinan los actores en
+ * vez de reemplazar la regla.
+ */
+export const ADMIN_DIRECT_DELIVERY_FROM: readonly OrderStatus[] = [
+  OrderStatus.AWAITING_COURIER_ASSIGNMENT,
+  OrderStatus.COURIER_ASSIGNED,
+  OrderStatus.READY_TO_SHIP,
+  OrderStatus.SHIPMENT_HOLD,
+  OrderStatus.SHIPPED,
+  OrderStatus.IN_TRANSIT,
+  OrderStatus.ON_HOLD,
+  OrderStatus.OUT_FOR_DELIVERY,
+  OrderStatus.DELIVERY_ATTEMPTED,
+  OrderStatus.DELIVERY_RESCHEDULED,
+  OrderStatus.ARRIVED_AT_CUSTOMER,
+  OrderStatus.PAYMENT_COLLECTION_PENDING,
+  OrderStatus.CASH_COLLECTION_PENDING,
+  OrderStatus.PAYMENT_COLLECTED_ELECTRONIC,
+  OrderStatus.PAYMENT_COLLECTED_CASH,
+];
+
+const STAFF_ACTORS: TransitionActor[] = ['ADMIN_CLIENT', 'OPERATOR_CLIENT', 'ADMIN_RUTA'];
+
+function addAdminDirectDeliveryRules(m: TransitionMap): void {
+  const paidOrCollected = (ctx: TransitionContext) =>
+    ctx.paymentStatus === PaymentStatus.PAID ||
+    ctx.paymentStatus === PaymentStatus.PAYMENT_COLLECTED;
+
+  for (const from of ADMIN_DIRECT_DELIVERY_FROM) {
+    const existing = m.get(from)?.get(OrderStatus.DELIVERED);
+    addRule(m, from, OrderStatus.DELIVERED, {
+      actors: [...new Set([...(existing?.actors ?? []), ...STAFF_ACTORS])],
+      condition: (ctx, actor) => {
+        if (STAFF_ACTORS.includes(actor)) {
+          return ctx.deliveryType === 'SHIP' && paidOrCollected(ctx);
+        }
+        // Cualquier otro actor sigue con la regla que ya tenía.
+        if (!existing || !existing.actors.includes(actor)) return false;
+        return existing.condition ? existing.condition(ctx, actor) : true;
+      },
+    });
+  }
 }
 
 const TRANSITIONS = buildTransitions();

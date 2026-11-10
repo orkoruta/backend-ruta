@@ -22,6 +22,17 @@ const patchParameterBodySchema = z.object({
 
 // ── Serializer ────────────────────────────────────────────────────────────────
 
+/**
+ * Parámetros que guardan credenciales (hoy, el token de Instagram). El panel
+ * los lista para que se vea que están configurados, pero nunca su valor.
+ */
+const SECRET_PARAMETER_PATTERN = /^integrations\..*token$/;
+
+function maskSecret(key: string, value: string): string {
+  if (!SECRET_PARAMETER_PATTERN.test(key)) return value;
+  return value ? `••••${value.slice(-4)}` : '';
+}
+
 function serializeParameter(p: {
   id: bigint;
   client_id: bigint;
@@ -37,7 +48,7 @@ function serializeParameter(p: {
     id: Number(p.id),
     client_id: Number(p.client_id),
     parameter_key: p.parameter_key,
-    parameter_value: p.parameter_value,
+    parameter_value: maskSecret(p.parameter_key, p.parameter_value),
     value_type: p.value_type,
     description: p.description,
     is_overrideable_by_client: p.is_overrideable_by_client,

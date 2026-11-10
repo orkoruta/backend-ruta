@@ -2,7 +2,7 @@ import type { TenantTransactionClient } from '@orkoruta/db';
 import { OrderStatus, PaymentStatus } from '@orkoruta/shared';
 import { withTenant, withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../../lib/http_error.js';
-import { readableInstructions } from './delivery_instructions.js';
+import { readableInstructions, staffNotes } from './delivery_instructions.js';
 import { assertTransition } from './state_machine.js';
 import { z } from 'zod';
 import { logger } from '../../lib/logger.js';
@@ -179,6 +179,9 @@ function serializeOrder(o: {
             instructions: readableInstructions(o.delivery_instructions),
           }
         : null,
+    // Lo que el negocio anotó al registrar el pedido (qué pidió el
+    // restaurante, a quién preguntar). El repartidor también lo necesita.
+    notes: staffNotes(o.delivery_instructions),
     buyer: {
       id: Number(o.users_orders_buyer_id_client_idTousers.id),
       name:

@@ -234,9 +234,10 @@ async function advanceCorporateOrderToPreparing(
   orderId: number,
   actor: AuthenticatedUser,
   paymentMethod: string,
+  buyerType: 'CORPORATE' | 'INDIVIDUAL' = 'CORPORATE',
 ): Promise<void> {
   const transitionActor = toTransitionActor(actor.user_type);
-  const ctx = { buyerType: 'CORPORATE' };
+  const ctx = { buyerType, staffRegistered: true };
   const key = { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } };
 
   const paymentStatus =
@@ -301,6 +302,109 @@ async function advanceCorporateOrderToPreparing(
   logger.info({ clientId, orderId }, 'Corporate order advanced to PREPARING on creation');
 }
 
+/**
+ * Comprador del pedido: el elegido, o uno nuevo creado en el momento.
+ *
+ * El nuevo se crea como los invitados de la tienda —sin contraseña, con correo
+ * sintético y `external_buyer_id` con prefijo `guest-`—, así el panel ya sabe
+ * mostrar su celular como contacto y él puede reclamar su cuenta más adelante.
+ */
+async function resolveBuyerId(
+  tx: TenantTransactionClient,
+  clientId: number,
+  input: CreateCorporateOrderInput,
+): Promise<bigint> {
+  if (input.buyer_id) {
+    const buyer = await tx.users.findFirst({
+      where: { id: BigInt(input.buyer_id), client_id: BigInt(clientId), user_type: 'BUYER' },
+      select: { id: true },
+    });
+    if (!buyer) throw new HttpError(422, 'VALIDATION_ERROR', 'El comprador no existe');
+    return buyer.id;
+  }
+
+  const guestRef = `guest-${globalThis.crypto.randomUUID()}`;
+  const created = await tx.users.create({
+    data: {
+      client_id: BigInt(clientId),
+      user_type: 'BUYER',
+      email: `${guestRef}@guest.ruta`,
+      auth_mode: 'EXTERNAL_REFERENCE',
+      external_buyer_id: guestRef,
+      full_name: input.new_buyer!.full_name,
+      phone: input.new_buyer!.phone,
+      status: 'ACTIVE',
+    },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+type OrderItemInput = CreateCorporateOrderInput['items'][number];
+
+/**
+ * Convierte los ítems del pedido en filas de `order_items`. Los del catálogo
+ * toman nombre y precio del producto (no del cliente HTTP); las líneas libres
+ * llevan los suyos y quedan sin `product_id`.
+ */
+async function buildOrderItems(
+  tx: TenantTransactionClient,
+  clientId: number,
+  inputItems: OrderItemInput[],
+) {
+  const productIds = [
+    ...new Set(inputItems.filter((i) => i.product_id !== undefined).map((i) => i.product_id!)),
+  ];
+  const products = productIds.length
+    ? await tx.products.findMany({
+        where: {
+          client_id: BigInt(clientId),
+          id: { in: productIds.map((id) => BigInt(id)) },
+          status: 'ACTIVE',
+        },
+        select: { id: true, unit_price: true, name: true, sku: true },
+      })
+    : [];
+
+  if (products.length !== productIds.length) {
+    throw new HttpError(422, 'VALIDATION_ERROR', 'Uno o más productos no existen o están inactivos');
+  }
+
+  const productMap = new Map(products.map((p) => [Number(p.id), p]));
+
+  let subtotal = 0;
+  const items = inputItems.map((item) => {
+    if (item.product_id !== undefined) {
+      const product = productMap.get(item.product_id)!;
+      const unitPrice = Number(product.unit_price);
+      const lineSubtotal = unitPrice * item.quantity;
+      subtotal += lineSubtotal;
+      return {
+        product_id: product.id,
+        product_name: product.name,
+        sku: product.sku ?? null,
+        quantity: item.quantity,
+        unit_price: unitPrice,
+        subtotal: lineSubtotal,
+      };
+    }
+    const unitPrice = item.unit_price!;
+    const lineSubtotal = unitPrice * item.quantity;
+    subtotal += lineSubtotal;
+    return {
+      product_id: null,
+      product_name: item.description!,
+      sku: null,
+      quantity: item.quantity,
+      unit_price: unitPrice,
+      subtotal: lineSubtotal,
+      metadata: { custom_line: true },
+    };
+  });
+
+  return { items, subtotal };
+}
+
 // ── Servicio ──────────────────────────────────────────────────────────────────
 
 export const corporateOrdersService = {
@@ -319,51 +423,17 @@ export const corporateOrdersService = {
     assertAdminOrOperator(actor);
     await assertFullClient(clientId);
 
-    if (!input.buyer_id) {
-      throw new HttpError(
-        422,
-        'VALIDATION_ERROR',
-        'buyer_id es requerido para crear un pedido corporativo (la BD no permite compradores nulos)',
-      );
+    if (!input.buyer_id && !input.new_buyer) {
+      throw new HttpError(422, 'VALIDATION_ERROR', 'Selecciona un comprador o registra uno nuevo');
     }
 
     const order = await withTenant(clientId, 'ADMIN_CLIENT', async (tx) => {
-      // Verificar que todos los productos existen y están activos
       if (input.delivery_type === 'PICKUP') {
         await assertPickupPointBelongsToClient(tx, clientId, input.pickup_point_id!);
       }
 
-      const productIds = input.items.map((i) => BigInt(i.product_id));
-      const products = await tx.products.findMany({
-        where: {
-          client_id: BigInt(clientId),
-          id: { in: productIds },
-          status: 'ACTIVE',
-        },
-        select: { id: true, unit_price: true, name: true, sku: true },
-      });
-
-      if (products.length !== productIds.length) {
-        throw new HttpError(422, 'VALIDATION_ERROR', 'Uno o más productos no existen o están inactivos');
-      }
-
-      const productMap = new Map(products.map((p) => [Number(p.id), p]));
-
-      // Calcular subtotal
-      let subtotal = 0;
-      const items = input.items.map((item) => {
-        const product = productMap.get(item.product_id)!;
-        const unitPrice = Number(product.unit_price);
-        const lineSubtotal = unitPrice * item.quantity;
-        subtotal += lineSubtotal;
-        return {
-          product_name: product.name,
-          sku: product.sku ?? null,
-          quantity: item.quantity,
-          unit_price: unitPrice,
-          subtotal: lineSubtotal,
-        };
-      });
+      const { items, subtotal } = await buildOrderItems(tx, clientId, input.items);
+      const buyerId = await resolveBuyerId(tx, clientId, input);
 
       // Serializar contacto corporativo en delivery_instructions
       // `delivery_instructions` es el único campo de texto libre de `orders`, así
@@ -382,7 +452,9 @@ export const corporateOrdersService = {
       const created = await tx.orders.create({
         data: {
           client_id: BigInt(clientId),
-          buyer_id: BigInt(input.buyer_id!),
+          buyer_id: buyerId,
+          // Tanto el corporativo como el detal tomado por teléfono los registra
+          // el staff: el origen dice quién lo cargó, `buyer_type` qué es.
           order_origin: OrderOrigin.CORPORATE_MANUAL,
           order_status: 'DRAFT',
           payment_status: 'PAYMENT_NOT_STARTED',
@@ -390,7 +462,7 @@ export const corporateOrdersService = {
           delivery_type: input.delivery_type,
           payment_method: input.payment_method,
           payment_method_submethod: toDbSubmethod(input.payment_method_submethod),
-          buyer_type: 'CORPORATE',
+          buyer_type: input.buyer_type,
           subtotal,
           total: subtotal,
           currency: 'COP',
@@ -421,12 +493,16 @@ export const corporateOrdersService = {
           actor_user_id: BigInt(actor.id),
           actor_type: 'USER',
           actor_role: actor.user_type,
-          action: 'CORPORATE_ORDER_CREATED',
+          action:
+            input.buyer_type === 'INDIVIDUAL' ? 'STAFF_RETAIL_ORDER_CREATED' : 'CORPORATE_ORDER_CREATED',
           entity_type: 'order',
           entity_id: created.id,
           result: 'SUCCESS',
           metadata: {
-            buyer_id: input.buyer_id,
+            buyer_id: Number(buyerId),
+            buyer_created: !input.buyer_id,
+            buyer_type: input.buyer_type,
+            custom_line_count: input.items.filter((i) => i.product_id === undefined).length,
             corporate_contact_name: input.corporate_contact.name,
             item_count: input.items.length,
             subtotal,
@@ -440,15 +516,22 @@ export const corporateOrdersService = {
           orderId: String(created.id),
           actorId: actor.id,
           actorType: actor.user_type,
-          buyerId: input.buyer_id,
+          buyerId: String(buyerId),
+          buyerType: input.buyer_type,
         },
-        'Corporate order created in DRAFT',
+        'Staff-registered order created in DRAFT',
       );
 
       return created;
     });
 
-    await advanceCorporateOrderToPreparing(clientId, Number(order.id), actor, input.payment_method);
+    await advanceCorporateOrderToPreparing(
+      clientId,
+      Number(order.id),
+      actor,
+      input.payment_method,
+      input.buyer_type,
+    );
 
     return serializeOrder(
       await withTenantReadOnly(clientId, 'ADMIN_CLIENT', (tx) =>
@@ -486,22 +569,15 @@ export const corporateOrdersService = {
     assertAdminOrOperator(actor);
     await assertFullClient(clientId);
 
-    if (!input.buyer_id) {
-      throw new HttpError(
-        422,
-        'VALIDATION_ERROR',
-        'buyer_id es requerido para crear un pedido corporativo recurrente',
-      );
-    }
-
-    // Crear el DRAFT corporativo
+    // Crear el pedido (y el comprador, si es nuevo)
     const order = await this.createCorporateOrder(clientId, input, actor);
 
-    // Marcar como recurrente
+    // Marcar como recurrente. El comprador sale del pedido: puede ser uno
+    // recién creado que no venía en el cuerpo.
     const template = await recurrenceService.markOrderAsRecurring(
       clientId,
       order.id,
-      input.buyer_id,
+      order.buyer_id,
       {
         recurrence_periodicity: input.recurrence_periodicity,
         custom_interval_days: input.custom_interval_days,

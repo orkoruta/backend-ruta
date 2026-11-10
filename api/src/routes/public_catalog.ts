@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { withTenantReadOnly } from '@orkoruta/db';
 import { HttpError } from '../lib/http_error.js';
 import { paymentConfigService } from '../services/payment_config.service.js';
+import { instagramFeedService } from '../services/instagram_feed.service.js';
 
 const slugParamsSchema = z.object({
   slug: z.string().min(1),
@@ -59,6 +60,28 @@ export function createPublicCatalogRouter(): Router {
         // así que viaja entero. `null` = el Cliente no lo tiene activo.
         nequi_payment_link: nequiPaymentLink,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * GET /public/clients/:slug/instagram?limit=2
+   * Últimas publicaciones de Instagram del Cliente, para su landing. Lista
+   * vacía si no tiene Instagram conectado: la landing decide qué mostrar.
+   */
+  router.get('/instagram', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { slug } = slugParamsSchema.parse(req.params);
+      const { limit } = z
+        .object({ limit: z.coerce.number().int().min(1).max(6).default(2) })
+        .parse(req.query);
+      const client = await resolveClientBySlug(slug);
+      const posts = await instagramFeedService.getLatestPosts(Number(client.id), limit);
+      // Cinco minutos en el navegador: suficiente para no pedirlo en cada
+      // navegación y corto para que una publicación nueva aparezca pronto.
+      res.set('Cache-Control', 'public, max-age=300');
+      res.json({ data: posts });
     } catch (error) {
       next(error);
     }

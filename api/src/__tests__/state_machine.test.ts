@@ -599,3 +599,92 @@ describe('assertTransition — lanza error en transición inválida', () => {
     ).toThrowError('Transición no permitida');
   });
 });
+
+// ─── Pedidos registrados por el staff (detal tomado por teléfono) ────────────
+
+describe('Pedido registrado por el staff', () => {
+  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] con staffRegistered ✅ aunque sea INDIVIDUAL', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'ADMIN_CLIENT', {
+        buyerType: 'INDIVIDUAL',
+        staffRegistered: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('DRAFT → PENDING_CONFIRM [ADMIN_CLIENT] sobre el carrito de un comprador ❌', () => {
+    expect(
+      canTransition(OrderStatus.DRAFT, OrderStatus.PENDING_CONFIRM, 'ADMIN_CLIENT', {
+        buyerType: 'INDIVIDUAL',
+      }),
+    ).toBe(false);
+  });
+});
+
+// ─── Entrega hecha por el propio Cliente ─────────────────────────────────────
+
+describe('Entrega registrada por el staff', () => {
+  const ship = (paymentStatus: string) => ({ deliveryType: 'SHIP', paymentStatus });
+
+  it.each([
+    OrderStatus.AWAITING_COURIER_ASSIGNMENT,
+    OrderStatus.COURIER_ASSIGNED,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.ARRIVED_AT_CUSTOMER,
+    OrderStatus.CASH_COLLECTION_PENDING,
+  ])('%s → DELIVERED [ADMIN_CLIENT] con cobro registrado ✅', (from) => {
+    expect(
+      canTransition(from, OrderStatus.DELIVERED, 'ADMIN_CLIENT', ship(PaymentStatus.PAYMENT_COLLECTED)),
+    ).toBe(true);
+  });
+
+  it('sin cobro registrado ❌', () => {
+    expect(
+      canTransition(
+        OrderStatus.OUT_FOR_DELIVERY,
+        OrderStatus.DELIVERED,
+        'OPERATOR_CLIENT',
+        ship(PaymentStatus.PENDING_COLLECTION),
+      ),
+    ).toBe(false);
+  });
+
+  it('en PICKUP no aplica (tiene su propio flujo) ❌', () => {
+    expect(
+      canTransition(OrderStatus.ARRIVED_AT_CUSTOMER, OrderStatus.DELIVERED, 'ADMIN_CLIENT', {
+        deliveryType: 'PICKUP',
+        paymentStatus: PaymentStatus.PAID,
+      }),
+    ).toBe(false);
+  });
+
+  it('desde PREPARING no se puede saltar a entregado ❌', () => {
+    expect(
+      canTransition(OrderStatus.PREPARING, OrderStatus.DELIVERED, 'ADMIN_CLIENT', ship(PaymentStatus.PAID)),
+    ).toBe(false);
+  });
+
+  it('el repartidor conserva su regla: ARRIVED_AT_CUSTOMER → DELIVERED [COURIER] pagado ✅', () => {
+    expect(
+      canTransition(OrderStatus.ARRIVED_AT_CUSTOMER, OrderStatus.DELIVERED, 'COURIER', {
+        paymentStatus: PaymentStatus.PAID,
+      }),
+    ).toBe(true);
+  });
+
+  it('el repartidor conserva su condición: sin cobro ❌', () => {
+    expect(
+      canTransition(OrderStatus.ARRIVED_AT_CUSTOMER, OrderStatus.DELIVERED, 'COURIER', {
+        paymentStatus: PaymentStatus.PENDING_COLLECTION,
+      }),
+    ).toBe(false);
+  });
+
+  it('el repartidor no gana atajos nuevos: OUT_FOR_DELIVERY → DELIVERED [COURIER] ❌', () => {
+    expect(
+      canTransition(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED, 'COURIER', {
+        paymentStatus: PaymentStatus.PAID,
+      }),
+    ).toBe(false);
+  });
+});

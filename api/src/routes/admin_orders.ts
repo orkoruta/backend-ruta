@@ -18,11 +18,25 @@ import { isGuestBuyer } from '../lib/guest_buyer.js';
 import { setRefundPendingIfPaid } from '../services/refunds.service.js';
 import { collectionService } from '../services/orders/collection.service.js';
 import { fromDbSubmethod } from '../services/orders/payment_submethod.js';
+import {
+  corporateContact,
+  readableInstructions,
+  staffNotes,
+} from '../services/orders/delivery_instructions.js';
 import type { AuthenticatedUser } from '../middleware/auth.js';
 import type { TransitionActor } from '../services/orders/state_machine.js';
 import { logger } from '../lib/logger.js';
 import { processWebhookEvent } from '../services/webhooks_outgoing.service.js';
 import { getMaintenanceBoss } from '../jobs/maintenance_boss.js';
+import {
+  staffDeliveryService,
+  staffMarkDeliveredSchema,
+} from '../services/orders/staff_delivery.service.js';
+import {
+  operationsReportsService,
+  dailyDispatchQuerySchema,
+  courierCollectionsQuerySchema,
+} from '../services/operations_reports.service.js';
 
 // ── Webhook helper ────────────────────────────────────────────────────────────
 
@@ -332,6 +346,16 @@ function serializeOrder(o: {
     courier_name: courier ? courier.full_name : null,
     delivery_address: deliveryAddress,
     delivery_instructions: o.delivery_instructions,
+    /*
+     * Lo que el panel debe mostrar. `delivery_instructions` en crudo es, en un
+     * pedido corporativo, un JSON de contacto; el panel lo ignoraba y por eso
+     * la indicación del comprador («Apto 502, torre 3») no se veía en ningún
+     * lado. Aquí sale ya separada: la indicación, las notas internas del staff
+     * y el contacto corporativo.
+     */
+    delivery_instructions_text: readableInstructions(o.delivery_instructions),
+    notes: staffNotes(o.delivery_instructions),
+    corporate_contact: corporateContact(o.delivery_instructions),
     scheduled_delivery_date: toDateOnly(o.scheduled_delivery_date),
     pickup_point_name: o.pickup_points?.name ?? null,
     order_status: o.order_status,
@@ -702,7 +726,26 @@ export const adminOrdersService = {
       });
       if (!existing) throw new HttpError(404, 'RESOURCE_NOT_FOUND', 'Pedido no encontrado');
 
-      const currentStatus = existing.order_status as OrderStatus;
+      let currentStatus = existing.order_status as OrderStatus;
+
+      /*
+       * Un pedido con repartidor asignado no cancela directo: el state machine
+       * solo deja devolverlo a la cola de asignación. Se hace aquí, en la misma
+       * transacción, para que «Cancelar» funcione también desde el mapa sin
+       * tener que desasignar antes a mano.
+       */
+      if (currentStatus === OrderStatus.COURIER_ASSIGNED) {
+        assertTransition(currentStatus, OrderStatus.AWAITING_COURIER_ASSIGNMENT, transitionActor);
+        await tx.orders.update({
+          where: { id_client_id: { id: BigInt(orderId), client_id: BigInt(clientId) } },
+          data: {
+            order_status: OrderStatus.AWAITING_COURIER_ASSIGNMENT,
+            courier_user_id: null,
+            updated_at: new Date(),
+          },
+        });
+        currentStatus = OrderStatus.AWAITING_COURIER_ASSIGNMENT;
+      }
 
       // Estado intermedio necesario, si lo hubiera.
       const hop = [OrderStatus.SHIPMENT_HOLD, OrderStatus.PICKUP_POINT_ISSUE].find(
@@ -750,14 +793,22 @@ export const adminOrdersService = {
           entity_type: 'order',
           entity_id: BigInt(orderId),
           result: 'SUCCESS',
-          metadata: { reason: reason ?? null, from_status: currentStatus, via: hop ?? null },
+          metadata: {
+            reason: reason ?? null,
+            from_status: existing.order_status,
+            via: hop ?? null,
+            unassigned_courier_id:
+              existing.order_status === OrderStatus.COURIER_ASSIGNED && existing.courier_user_id
+                ? Number(existing.courier_user_id)
+                : null,
+          },
         },
       });
 
       await setRefundPendingIfPaid(tx, BigInt(orderId), BigInt(clientId), closedOrder.payment_status);
 
       logger.info(
-        { clientId, orderId, actorId: actor.id, from: currentStatus, via: hop ?? null },
+        { clientId, orderId, actorId: actor.id, from: existing.order_status, via: hop ?? null },
         'Order cancelled by client staff',
       );
 
@@ -1165,6 +1216,29 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
     }
   });
 
+  // GET /admin/orders/daily-dispatch?date=YYYY-MM-DD — qué sale ese día.
+  // Va antes de `/:id`, que si no la tomaría como un id inválido.
+  router.get('/daily-dispatch', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date } = dailyDispatchQuerySchema.parse(req.query);
+      res.json(await operationsReportsService.dailyDispatch(req.user!.client_id, date));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /admin/orders/courier-collections?date_from&date_to — cobros por repartidor.
+  router.get('/courier-collections', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date_from, date_to } = courierCollectionsQuerySchema.parse(req.query);
+      res.json(
+        await operationsReportsService.courierCollections(req.user!.client_id, date_from, date_to),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // GET /admin/orders/:id
   router.get('/:id', requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1267,6 +1341,19 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.confirmLinkPayment(req.user!.client_id, id, req.user!));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /admin/orders/:id/mark-delivered — el propio Cliente entregó el pedido
+  router.post('/:id/mark-delivered', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await assertFullClient(req.user!.client_id);
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const input = staffMarkDeliveredSchema.parse(req.body ?? {});
+      await staffDeliveryService.markDelivered(req.user!.client_id, id, req.user!, input);
+      res.json(await service.getById(req.user!.client_id, id));
     } catch (error) {
       next(error);
     }
