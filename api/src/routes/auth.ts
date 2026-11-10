@@ -48,21 +48,37 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
+/*
+ * El refresh token se limita a la ruta de renovación para no viajar en cada
+ * petición. Pero los frontends llaman a la API a través del proxy `/api` de
+ * Render (cookie de primera parte, ver `config/env.ts`): para el navegador la
+ * ruta es `/api/auth/refresh`, que **no** cae dentro de `Path=/auth/refresh`,
+ * así que la cookie nunca se enviaba y la sesión no se podía renovar.
+ *
+ * Se emite en las dos rutas. Son dos cookies con el mismo nombre y distinto
+ * `Path`: el navegador manda la que coincide con la URL que pidió.
+ */
+const REFRESH_COOKIE_PATHS = ['/auth/refresh', '/api/auth/refresh'] as const;
+
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
   res.cookie('access_token', accessToken, {
     ...COOKIE_OPTIONS,
     maxAge: 15 * 60 * 1000,
   });
-  res.cookie('refresh_token', refreshToken, {
-    ...COOKIE_OPTIONS,
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-    path: '/auth/refresh',
-  });
+  for (const path of REFRESH_COOKIE_PATHS) {
+    res.cookie('refresh_token', refreshToken, {
+      ...COOKIE_OPTIONS,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path,
+    });
+  }
 }
 
 function clearAuthCookies(res: Response): void {
   res.clearCookie('access_token', { ...COOKIE_OPTIONS });
-  res.clearCookie('refresh_token', { ...COOKIE_OPTIONS, path: '/auth/refresh' });
+  for (const path of REFRESH_COOKIE_PATHS) {
+    res.clearCookie('refresh_token', { ...COOKIE_OPTIONS, path });
+  }
 }
 
 function authResponse(result: Awaited<ReturnType<AuthService['login']>>) {

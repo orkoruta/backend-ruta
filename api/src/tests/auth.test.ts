@@ -90,6 +90,19 @@ describe('auth routes', () => {
     );
   });
 
+  it('el refresh token sale también para el proxy /api (si no, la sesión no se renueva)', async () => {
+    const service = serviceMock();
+    const res = await request(testApp(service))
+      .post('/auth/login')
+      .send({ email: 'user@test.com', password: 'pass', client_slug: 'cliente-test' })
+      .expect(200);
+
+    const cookies = res.headers['set-cookie'] as unknown as string[];
+    const refresh = cookies.filter((c) => c.startsWith('refresh_token='));
+    expect(refresh.some((c) => /Path=\/auth\/refresh(;|$)/.test(c))).toBe(true);
+    expect(refresh.some((c) => /Path=\/api\/auth\/refresh(;|$)/.test(c))).toBe(true);
+  });
+
   it('login devuelve 401 con credenciales inválidas', async () => {
     const service = serviceMock();
     service.login.mockRejectedValue(new HttpError(401, 'AUTHENTICATION_REQUIRED', 'Credenciales inválidas'));
