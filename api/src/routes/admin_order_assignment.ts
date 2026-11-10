@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger.js';
 import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { requireIdempotencyKey } from '../middleware/idempotency.js';
@@ -99,6 +100,9 @@ export function createAdminOrderAssignmentRouter(
       res.status(err.statusCode).json(sendHttpError(err));
       return;
     }
+    // Sin este log el 500 no dejaba rastro: el usuario veía «Error interno» y
+    // en los logs no aparecía nada que explicara por qué.
+    logger.error({ err, router: 'admin_order_assignment' }, 'Unhandled error');
     res.status(500).json(toApiError('TENANT_ISOLATION_VIOLATION', 'Error interno'));
   });
 

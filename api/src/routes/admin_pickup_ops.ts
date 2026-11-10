@@ -9,6 +9,7 @@
  * Accesibles por ADMIN_CLIENT y OPERATOR_CLIENT (y ADMIN_RUTA via Vista de Control).
  */
 
+import { logger } from '../lib/logger.js';
 import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ZodError } from 'zod';
@@ -143,6 +144,9 @@ export function createAdminPickupOpsRouter(service: PickupOpsService = defaultSe
       res.status(err.statusCode).json(sendHttpError(err));
       return;
     }
+    // Sin este log el 500 no dejaba rastro: el usuario veía «Error interno» y
+    // en los logs no aparecía nada que explicara por qué.
+    logger.error({ err, router: 'admin_pickup_ops' }, 'Unhandled error');
     res.status(500).json(toApiError('TENANT_ISOLATION_VIOLATION', 'Error interno'));
   });
 

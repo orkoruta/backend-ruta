@@ -298,7 +298,9 @@ export const recurrenceService = {
           buyer_id: BigInt(buyerId),
           order_origin: OrderOrigin.RECURRENCE,
           order_status: 'DRAFT',
-          payment_status: 'PAYMENT_PENDING',
+          // `PAYMENT_PENDING` no existe: la BD lo rechazaba y «repetir último
+          // pedido» fallaba siempre. Un DRAFT aún no tiene pago iniciado.
+          payment_status: 'PAYMENT_NOT_STARTED',
           delivery_type: lastOrder.delivery_type,
           delivery_carrier_type: lastOrder.delivery_carrier_type ?? null,
           payment_method: lastOrder.payment_method,

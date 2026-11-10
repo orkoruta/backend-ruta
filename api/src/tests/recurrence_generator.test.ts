@@ -26,8 +26,9 @@ const dbMock = vi.hoisted(() => {
   };
 
   const writeTx = {
-    recurrence_templates: { updateMany: vi.fn() },
-    orders: { create: vi.fn() },
+    recurrence_templates: { updateMany: vi.fn(), update: vi.fn() },
+    orders: { create: vi.fn(), findUnique: vi.fn() },
+    products: { findMany: vi.fn() },
   };
 
   return {
@@ -84,6 +85,7 @@ function makeTemplate(overrides: Partial<{
     recurrence_periodicity: RecurrencePeriodicity.WEEKLY as string,
     custom_interval_days: null,
     template_payload: {
+      order_id: 50,
       delivery_address_line: 'Calle 1 # 2-3',
       delivery_address_city: 'Bogotá',
       delivery_address_state: 'Cundinamarca',
@@ -113,7 +115,36 @@ beforeEach(() => {
     buyer_id: BUYER_ID,
   });
   webhookMock.processWebhookEvent.mockResolvedValue(undefined);
+  // Pedido de origen de la plantilla: de aquí salen ítems y coordenadas.
+  dbMock.writeTx.orders.findUnique.mockResolvedValue(makeSourceOrder());
+  dbMock.writeTx.products.findMany.mockResolvedValue([
+    { id: BigInt(7), unit_price: 50000, name: 'Caja 4 kg' },
+  ]);
 });
+
+function makeSourceOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    id: BigInt(50),
+    delivery_address_line: 'Calle 1 # 2-3',
+    delivery_address_city: 'Bogotá',
+    delivery_address_state: 'Cundinamarca',
+    delivery_address_country: 'CO',
+    delivery_address_postal_code: null,
+    delivery_address_latitude: 4.7,
+    delivery_address_longitude: -74.05,
+    delivery_instructions: 'Apto 502',
+    pickup_point_id: null,
+    buyer_type: 'INDIVIDUAL',
+    currency: 'COP',
+    order_items: [
+      // Producto del catálogo: toma el precio vigente (50000, no 48000).
+      { product_id: BigInt(7), product_name: 'Caja 4kg', sku: 'AVO-4KG', quantity: 2, unit_price: 48000, metadata: null },
+      // Línea libre: conserva su precio.
+      { product_id: null, product_name: 'Aguacates maduros sueltos', sku: null, quantity: 10, unit_price: 1500, metadata: { custom_line: true } },
+    ],
+    ...overrides,
+  }
+}
 
 describe('RG1 — genera pedido correcto para plantilla ACTIVE vencida', () => {
   it('crea el pedido recurrente pre-aprobado en SELLER_CONFIRMED', async () => {
@@ -136,7 +167,40 @@ describe('RG1 — genera pedido correcto para plantilla ACTIVE vencida', () => {
     expect(createCall.data.order_status).toBe('SELLER_CONFIRMED');
     expect(createCall.data.order_origin).toBe('RECURRENCE');
     expect(createCall.data.recurrence_template_id).toBe(template.id);
-    expect(createCall.data.payment_status).toBe('PAYMENT_PENDING');
+    // Antes era 'PAYMENT_PENDING', que no existe y la BD rechazaba.
+    expect(createCall.data.payment_status).toBe('PENDING_COLLECTION');
+
+    // Copia los productos del pedido de origen, con el precio vigente.
+    const items = createCall.data.order_items.create;
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ product_id: BigInt(7), unit_price: 50000, quantity: 2, subtotal: 100000 });
+    expect(items[1]).toMatchObject({ product_id: null, unit_price: 1500, quantity: 10, subtotal: 15000 });
+    expect(createCall.data.total).toBe(115000);
+
+    // Coordenadas del pedido de origen: si no, no sale en el mapa.
+    expect(createCall.data.delivery_address_latitude).toBe(4.7);
+    expect(createCall.data.delivery_address_longitude).toBe(-74.05);
+  });
+
+  it('pago en línea → PENDING_ONLINE_PAYMENT', async () => {
+    dbMock.readTx.recurrence_templates.findMany.mockResolvedValue([
+      makeTemplate({ payment_method: 'ONLINE_AT_ORDER' }),
+    ]);
+    await generateRecurringOrdersForClient(CLIENT_ID, fakeBoss);
+    const createCall = dbMock.writeTx.orders.create.mock.calls[0][0];
+    expect(createCall.data.payment_status).toBe('PENDING_ONLINE_PAYMENT');
+  });
+
+  it('sin pedido de origen: pausa la plantilla en vez de reintentar cada hora', async () => {
+    dbMock.readTx.recurrence_templates.findMany.mockResolvedValue([makeTemplate()]);
+    dbMock.writeTx.orders.findUnique.mockResolvedValue(null);
+    await generateRecurringOrdersForClient(CLIENT_ID, fakeBoss);
+    expect(dbMock.writeTx.orders.create).not.toHaveBeenCalled();
+    expect(dbMock.writeTx.recurrence_templates.update).toHaveBeenCalledOnce();
+    expect(dbMock.writeTx.recurrence_templates.update.mock.calls[0][0].data.recurrence_status).toBe(
+      RecurrenceStatus.RECURRENCE_PAUSED,
+    );
+    expect(webhookMock.processWebhookEvent).not.toHaveBeenCalled();
   });
 });
 

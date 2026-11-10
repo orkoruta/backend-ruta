@@ -45,8 +45,9 @@ const dbMock = vi.hoisted(() => {
       updateMany: vi.fn(),
       findFirst: vi.fn(),
     },
-    orders: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    orders: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     order_items: { create: vi.fn() },
+    products: { findMany: vi.fn() },
     audit_events: { create: vi.fn() },
   };
 
@@ -237,6 +238,27 @@ beforeEach(() => {
   });
   dbMock.writeTx.audit_events.create.mockResolvedValue({});
   webhookMock.processWebhookEvent.mockResolvedValue(undefined);
+  // Pedido de origen de la plantilla (template_payload.order_id = 50).
+  dbMock.writeTx.orders.findUnique.mockResolvedValue({
+    id: BigInt(50),
+    delivery_address_line: 'Calle 1 # 2-3',
+    delivery_address_city: 'Bogotá',
+    delivery_address_state: 'Cundinamarca',
+    delivery_address_country: 'CO',
+    delivery_address_postal_code: null,
+    delivery_address_latitude: 4.7,
+    delivery_address_longitude: -74.05,
+    delivery_instructions: null,
+    pickup_point_id: null,
+    buyer_type: 'INDIVIDUAL',
+    currency: 'COP',
+    order_items: [
+      { product_id: BigInt(7), product_name: 'Caja 4kg', sku: 'AVO-4KG', quantity: 1, unit_price: 48000, metadata: null },
+    ],
+  });
+  dbMock.writeTx.products.findMany.mockResolvedValue([
+    { id: BigInt(7), unit_price: 48000, name: 'Caja 4kg' },
+  ]);
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

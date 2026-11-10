@@ -195,6 +195,79 @@ export async function generateOrderFromTemplate(
       return;
     }
 
+    /*
+     * La plantilla solo guarda la dirección (y no las coordenadas) y el id del
+     * pedido de origen. Los productos, las coordenadas, el punto de recogida y
+     * el tipo de comprador salen de ese pedido.
+     *
+     * Antes el pedido se creaba con `payment_status: 'PAYMENT_PENDING'` —un
+     * valor que no existe y que la BD rechaza— y sin ítems, en $0: no se llegó
+     * a generar ni un pedido recurrente en producción, y la plantilla
+     * reintentaba (y fallaba) cada hora.
+     */
+    const sourceOrderId = Number(payload.order_id);
+    const source = Number.isFinite(sourceOrderId) && sourceOrderId > 0
+      ? await tx.orders.findUnique({
+          where: { id_client_id: { id: BigInt(sourceOrderId), client_id: BigInt(clientId) } },
+          include: { order_items: true },
+        })
+      : null;
+
+    if (!source || source.order_items.length === 0) {
+      // Sin pedido de origen no hay qué repetir: se pausa en vez de reintentar
+      // para siempre. El Cliente la ve pausada y puede rehacerla.
+      await tx.recurrence_templates.update({
+        where: { id_client_id: { id: template.id, client_id: BigInt(clientId) } },
+        data: { recurrence_status: RecurrenceStatus.RECURRENCE_PAUSED, updated_at: now },
+      });
+      logger.warn(
+        { clientId, templateId: String(template.id), sourceOrderId },
+        'Recurrence template paused: source order missing or without items',
+      );
+      return;
+    }
+
+    // Precio vigente del catálogo para los productos activos; las líneas libres
+    // (sin producto) y los productos retirados conservan el precio original.
+    const productIds = source.order_items
+      .map((i) => i.product_id)
+      .filter((id): id is bigint => id !== null);
+    const products = productIds.length
+      ? await tx.products.findMany({
+          where: { client_id: BigInt(clientId), id: { in: productIds }, status: 'ACTIVE' },
+          select: { id: true, unit_price: true, name: true },
+        })
+      : [];
+    const productById = new Map(products.map((p) => [p.id.toString(), p]));
+
+    let subtotal = 0;
+    const items = source.order_items.map((item) => {
+      const current = item.product_id ? productById.get(item.product_id.toString()) : undefined;
+      const unitPrice = Number(current ? current.unit_price : item.unit_price);
+      const lineSubtotal = unitPrice * item.quantity;
+      subtotal += lineSubtotal;
+      return {
+        product_id: item.product_id ?? null,
+        product_name: current?.name ?? item.product_name,
+        sku: item.sku ?? null,
+        quantity: item.quantity,
+        unit_price: unitPrice,
+        subtotal: lineSubtotal,
+        metadata: item.metadata ?? undefined,
+      };
+    });
+
+    // La dirección de la plantilla manda (el comprador puede haberla cambiado
+    // con updateTemplate); si no la tiene, la del pedido de origen.
+    const pick = <T>(key: string, fallback: T): T =>
+      (payload[key] as T | null | undefined) ?? fallback;
+    const sameAddress =
+      pick<string | null>('delivery_address_line', null) === null ||
+      pick<string | null>('delivery_address_line', null) === source.delivery_address_line;
+
+    const paymentStatus =
+      template.payment_method === 'ONLINE_AT_ORDER' ? 'PENDING_ONLINE_PAYMENT' : 'PENDING_COLLECTION';
+
     // Un pedido recurrente ya está acordado: nace pre-aprobado en SELLER_CONFIRMED
     // (el Cliente lo ve listo para "Marcar preparando", sin validar ni aceptar).
     // El pago online, si aplica, lo ejecuta el proveedor del Cliente aparte.
@@ -205,22 +278,29 @@ export async function generateOrderFromTemplate(
         recurrence_template_id: template.id,
         order_origin: OrderOrigin.RECURRENCE,
         order_status: 'SELLER_CONFIRMED',
-        payment_status: 'PAYMENT_PENDING',
+        payment_status: paymentStatus,
+        refund_status: 'REFUND_NOT_REQUIRED',
         delivery_type: template.delivery_type,
         delivery_carrier_type: template.delivery_carrier_type ?? null,
         payment_method: template.payment_method,
         payment_method_submethod: template.payment_method_submethod ?? null,
-        delivery_address_line: (payload.delivery_address_line as string) ?? null,
-        delivery_address_city: (payload.delivery_address_city as string) ?? null,
-        delivery_address_state: (payload.delivery_address_state as string) ?? null,
-        delivery_address_country: (payload.delivery_address_country as string) ?? null,
-        delivery_address_postal_code: (payload.delivery_address_postal_code as string) ?? null,
-        delivery_address_latitude: (payload.delivery_address_latitude as number) ?? null,
-        delivery_address_longitude: (payload.delivery_address_longitude as number) ?? null,
-        delivery_instructions: (payload.delivery_instructions as string) ?? null,
-        buyer_type: (payload.buyer_type as string) ?? 'INDIVIDUAL',
-        subtotal: 0,
-        total: 0,
+        delivery_address_line: pick('delivery_address_line', source.delivery_address_line),
+        delivery_address_city: pick('delivery_address_city', source.delivery_address_city),
+        delivery_address_state: pick('delivery_address_state', source.delivery_address_state),
+        delivery_address_country: pick('delivery_address_country', source.delivery_address_country),
+        delivery_address_postal_code: pick('delivery_address_postal_code', source.delivery_address_postal_code),
+        // Las coordenadas solo valen si la dirección no cambió: sin ellas el
+        // pedido no sale en el mapa, pero con las de otra dirección saldría mal.
+        delivery_address_latitude: sameAddress ? source.delivery_address_latitude : null,
+        delivery_address_longitude: sameAddress ? source.delivery_address_longitude : null,
+        delivery_instructions: pick('delivery_instructions', source.delivery_instructions),
+        pickup_point_id: source.pickup_point_id ?? null,
+        buyer_type: source.buyer_type,
+        subtotal,
+        total: subtotal,
+        currency: source.currency,
+        submitted_at: now,
+        order_items: { create: items },
       },
     });
 

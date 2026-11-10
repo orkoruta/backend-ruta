@@ -19,6 +19,7 @@
  *   app.use('/courier', courierCollectionRouter)
  */
 
+import { logger } from '../lib/logger.js';
 import { z } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ZodError } from 'zod';
@@ -144,6 +145,9 @@ export function createCourierCollectionRouter(service: CollectionService = colle
       res.status(err.statusCode).json(sendHttpError(err));
       return;
     }
+    // Sin este log el 500 no dejaba rastro: el usuario veía «Error interno» y
+    // en los logs no aparecía nada que explicara por qué.
+    logger.error({ err, router: 'courier_collection' }, 'Unhandled error');
     res.status(500).json(toApiError('TENANT_ISOLATION_VIOLATION', 'Error interno'));
   });
 

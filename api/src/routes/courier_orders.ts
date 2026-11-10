@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger.js';
 import { z } from 'zod';
 import { ZodError } from 'zod';
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -136,5 +137,8 @@ export function courierErrorHandler(
     res.status(err.statusCode).json(sendHttpError(err));
     return;
   }
+  // Sin este log el 500 no dejaba rastro: el usuario veía «Error interno» y
+  // en los logs no aparecía nada que explicara por qué.
+  logger.error({ err, router: 'courier_orders' }, 'Unhandled error');
   res.status(500).json(toApiError('TENANT_ISOLATION_VIOLATION', 'Error interno'));
 }
