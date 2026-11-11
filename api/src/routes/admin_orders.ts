@@ -32,6 +32,8 @@ import {
   staffDeliveryService,
   staffMarkDeliveredSchema,
 } from '../services/orders/staff_delivery.service.js';
+import { orderItemsEditService } from '../services/orders/order_items_edit.service.js';
+import { updateOrderItemsSchema } from '@orkoruta/shared';
 import {
   operationsReportsService,
   dailyDispatchQuerySchema,
@@ -1341,6 +1343,19 @@ export function createAdminOrdersRouter(service: AdminOrdersService = adminOrder
     try {
       const { id } = orderIdParamsSchema.parse(req.params);
       res.json(await service.confirmLinkPayment(req.user!.client_id, id, req.user!));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // PUT /admin/orders/:id/items — cambiar los productos antes de que salga a reparto
+  router.put('/:id/items', requireIdempotencyKey, requireAdminOrOperator, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await assertFullClient(req.user!.client_id);
+      const { id } = orderIdParamsSchema.parse(req.params);
+      const input = updateOrderItemsSchema.parse(req.body ?? {});
+      await orderItemsEditService.updateItems(req.user!.client_id, id, req.user!, input);
+      res.json(await service.getById(req.user!.client_id, id));
     } catch (error) {
       next(error);
     }
