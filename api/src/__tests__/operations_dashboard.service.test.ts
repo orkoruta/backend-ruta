@@ -143,6 +143,17 @@ describe('operationsDashboardService.getOperations', () => {
     ]);
   });
 
+  it('cobrado en la puerta sin pulsar «Entregar» cuenta como entregado, no como pendiente', async () => {
+    dbMock.findMany.mockResolvedValue([]);
+    await operationsDashboardService.getOperations(7, { date_from: '2026-11-12', include_backlog: false }, NOW);
+    const [pendingCall, deliveredCall] = dbMock.findMany.mock.calls;
+    expect(pendingCall[0].where.order_status.notIn).toContain('PAYMENT_COLLECTED_CASH');
+    expect(pendingCall[0].where.order_status.notIn).toContain('PAYMENT_COLLECTED_ELECTRONIC');
+    const fallback = deliveredCall[0].where.OR[1];
+    expect(fallback.order_status.in).toEqual(expect.arrayContaining(['PAYMENT_COLLECTED_CASH', 'PAYMENT_COLLECTED_ELECTRONIC']));
+    expect(fallback.order_status.in).not.toContain('CLOSED');
+  });
+
   it('aplica filtros de repartidor y tipo de entrega a las dos consultas', async () => {
     dbMock.findMany.mockResolvedValue([]);
     await operationsDashboardService.getOperations(

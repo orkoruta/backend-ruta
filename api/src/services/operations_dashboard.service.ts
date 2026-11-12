@@ -10,8 +10,10 @@
  *    «atrasado»: siempre se cuenta, y se lista solo si se pide
  *    (`include_backlog`).
  *  - **Entregados**: el día que cuenta es el de la entrega (`delivered_at`).
- *    Los pedidos antiguos que llegaron a estado entregado sin esa marca usan su
- *    última actualización.
+ *    Los que llegaron a estado entregado sin esa marca usan su última
+ *    actualización — en particular los detenidos en «cobrado» (el repartidor
+ *    cobró en la puerta y no pulsó «Entregar»), cuya última actualización es
+ *    el cobro.
  *
  * Solo lectura. RUTA no custodia dinero (regla 4.1): los montos son el valor de
  * los pedidos, no dinero recibido por RUTA.

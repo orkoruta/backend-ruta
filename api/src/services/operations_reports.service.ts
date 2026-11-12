@@ -59,8 +59,17 @@ export const NOT_DISPATCHED: string[] = [
   OrderStatus.LOST_IN_RETURN,
 ];
 
-/** Ya entregados (para separar lo pendiente de lo hecho en el resumen). */
+/**
+ * Ya entregados (para separar lo pendiente de lo hecho en el resumen).
+ *
+ * Incluye el cobro registrado en la puerta (`PAYMENT_COLLECTED_*`): en la
+ * operación real el repartidor cobra y no pulsa «Entregar» (en Avocado había
+ * pedidos de hace un mes detenidos ahí). Cobrado en casa del comprador es, para
+ * el negocio, entregado.
+ */
 export const DELIVERED_LIKE: ReadonlySet<string> = new Set([
+  OrderStatus.PAYMENT_COLLECTED_CASH,
+  OrderStatus.PAYMENT_COLLECTED_ELECTRONIC,
   OrderStatus.DELIVERED,
   OrderStatus.PICKED_UP,
   OrderStatus.CONFIRMED_BY_CUSTOMER,
