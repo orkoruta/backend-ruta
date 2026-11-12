@@ -41,7 +41,7 @@ export const courierCollectionsQuerySchema = z.object({
  * Pedidos que NO salen a despacho: carritos, cancelados, perdidos o devueltos.
  * Un CLOSED cuenta solo si llegó a entregarse (`delivered_at` no nulo).
  */
-const NOT_DISPATCHED: string[] = [
+export const NOT_DISPATCHED: string[] = [
   OrderStatus.DRAFT,
   OrderStatus.PENDING_CONFIRM,
   OrderStatus.EXPIRED,
@@ -60,7 +60,7 @@ const NOT_DISPATCHED: string[] = [
 ];
 
 /** Ya entregados (para separar lo pendiente de lo hecho en el resumen). */
-const DELIVERED_LIKE: ReadonlySet<string> = new Set([
+export const DELIVERED_LIKE: ReadonlySet<string> = new Set([
   OrderStatus.DELIVERED,
   OrderStatus.PICKED_UP,
   OrderStatus.CONFIRMED_BY_CUSTOMER,

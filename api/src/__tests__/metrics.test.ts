@@ -31,6 +31,10 @@ const mockClientMetricsService = {
   getClientMetrics: vi.fn(),
 };
 
+const mockOperationsDashboard = {
+  getOperations: vi.fn(),
+};
+
 const mockGlobalMetricsService = {
   getGlobalMetrics: vi.fn(),
 };
@@ -42,7 +46,7 @@ function buildApp() {
   app.use(express.json());
   app.use(cookieParser());
   app.use(authenticate);
-  app.use('/admin/metrics', createAdminMetricsRouter(mockClientMetricsService));
+  app.use('/admin/metrics', createAdminMetricsRouter(mockClientMetricsService, mockOperationsDashboard));
   app.use('/ruta-admin/metrics', createRutaAdminMetricsRouter(mockGlobalMetricsService));
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof ZodError) {
@@ -277,5 +281,63 @@ describe('GET /ruta-admin/metrics', () => {
       .set('Authorization', 'Bearer admin-ruta-token');
 
     expect(res.status).toBe(500);
+  });
+});
+
+// ── GET /admin/metrics/operations ─────────────────────────────────────────────
+
+describe('GET /admin/metrics/operations', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const EMPTY = { pending: { count: 0, orders: [] }, delivered: { count: 0, orders: [] } };
+
+  it('401 — no auth token', async () => {
+    const res = await request(app).get('/admin/metrics/operations');
+    expect(res.status).toBe(401);
+  });
+
+  it('403 — BUYER cannot access', async () => {
+    stubBuyer();
+    const res = await request(app).get('/admin/metrics/operations').set('Authorization', 'Bearer t');
+    expect(res.status).toBe(403);
+  });
+
+  it('200 — OPERATOR_CLIENT puede ver el dashboard (matriz §15)', async () => {
+    mockVerifyAccessToken.mockResolvedValue({ sub: '50', client_id: 7, user_type: 'OPERATOR_CLIENT', session_id: 3 });
+    mockOperationsDashboard.getOperations.mockResolvedValue(EMPTY);
+    const res = await request(app).get('/admin/metrics/operations').set('Authorization', 'Bearer t');
+    expect(res.status).toBe(200);
+  });
+
+  it('200 — OPERATOR_CLIENT también ve el resumen general', async () => {
+    mockVerifyAccessToken.mockResolvedValue({ sub: '50', client_id: 7, user_type: 'OPERATOR_CLIENT', session_id: 3 });
+    mockClientMetricsService.getClientMetrics.mockResolvedValue(CLIENT_METRICS);
+    const res = await request(app).get('/admin/metrics').set('Authorization', 'Bearer t');
+    expect(res.status).toBe(200);
+  });
+
+  it('pasa los filtros parseados al servicio', async () => {
+    stubAdminClient(7);
+    mockOperationsDashboard.getOperations.mockResolvedValue(EMPTY);
+    const res = await request(app)
+      .get('/admin/metrics/operations?date_from=2026-11-01&date_to=2026-11-12&courier_id=5&delivery_type=SHIP&include_backlog=true')
+      .set('Authorization', 'Bearer t');
+    expect(res.status).toBe(200);
+    expect(mockOperationsDashboard.getOperations).toHaveBeenCalledWith(7, {
+      date_from: '2026-11-01',
+      date_to: '2026-11-12',
+      courier_id: 5,
+      delivery_type: 'SHIP',
+      include_backlog: true,
+    });
+  });
+
+  it('400 — fecha con formato inválido', async () => {
+    stubAdminClient(7);
+    const res = await request(app)
+      .get('/admin/metrics/operations?date_from=12/11/2026')
+      .set('Authorization', 'Bearer t');
+    expect(res.status).toBe(400);
+    expect(mockOperationsDashboard.getOperations).not.toHaveBeenCalled();
   });
 });
