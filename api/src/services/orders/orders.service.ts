@@ -218,6 +218,9 @@ export const ordersService = {
         const lineSubtotal = unitPrice * item.quantity;
         subtotal += lineSubtotal;
         return {
+          // Sin esto la línea quedaba como «libre»: el despacho no la agrupaba
+          // con el producto y al editar el pedido no aparecía del catálogo.
+          product_id: product.id,
           product_name: product.name,
           sku: product.sku ?? null,
           quantity: item.quantity,
